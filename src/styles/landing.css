@@ -1,0 +1,207 @@
+/* ===========================================================================
+   Tailor 365 — marketing landing page styles
+   Scoped under `.landing-page`. The block re-pins the light shadcn theme
+   tokens so shadcn/ui components (Button, Card, Badge) always render in their
+   light form here, even when the app has toggled `.dark` on <html>.
+   =========================================================================== */
+
+.landing-page {
+  /* --- light shadcn tokens (pinned) --- */
+  --background: 0 0% 100%;
+  --foreground: 222 16% 8%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 16% 8%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 16% 8%;
+  --primary: 222 32% 8%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 20% 96%;
+  --secondary-foreground: 222 30% 12%;
+  --muted: 220 16% 96%;
+  --muted-foreground: 220 9% 44%;
+  --accent: 220 16% 94%;
+  --accent-foreground: 222 30% 12%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 16% 92%;
+  --input: 220 16% 90%;
+  --ring: 222 32% 8%;
+  --radius: 0.85rem;
+
+  /* --- brand accents (mirrors the product palette) --- */
+  --l-ink: #0e1116;
+  --l-ink-soft: #5b636e;
+  --l-ink-faint: #8a929c;
+  --l-blue: #3b5bff;
+  --l-blue-tint: #eef1ff;
+  --l-green: #16a34a;
+  --l-green-tint: #e7f6ec;
+  --l-amber: #d97706;
+  --l-amber-tint: #fbf0de;
+  --l-line: #e6e9ee;
+  --l-line2: #d7dce3;
+  --l-bg-tint: #f7f8fa;
+  --wa: #25d366;
+
+  color-scheme: light;
+  background: #fff;
+  color: var(--l-ink);
+  min-height: 100vh;
+  font-family: "DM Sans", "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.55;
+}
+
+.landing-page ::selection { background: #d7ddff; }
+
+/* Serif-italic accent word used in display headings */
+.landing-serif {
+  font-family: "DM Serif Display", Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Urdu (right-to-left) — used inside the printed measurement receipt */
+.landing-page .urdu { font-family: "Noto Nastaliq Urdu", serif; direction: rtl; }
+
+/* --- soft radial wash behind the hero --- */
+.landing-hero-wash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(52% 40% at 50% 0%, rgba(59, 91, 255, 0.12), transparent 70%),
+    radial-gradient(40% 34% at 84% 8%, rgba(22, 163, 74, 0.10), transparent 70%),
+    radial-gradient(46% 40% at 12% 14%, rgba(217, 119, 6, 0.08), transparent 72%);
+}
+
+/* --- browser frame that holds a product screenshot --- */
+.landing-frame {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--l-line2);
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(14, 17, 22, 0.06), 0 30px 60px rgba(14, 17, 22, 0.12);
+}
+.landing-frame-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--l-bg-tint);
+  border-bottom: 1px solid var(--l-line);
+}
+.landing-frame-top i { width: 11px; height: 11px; border-radius: 50%; background: var(--l-line2); display: block; }
+.landing-frame-addr {
+  margin-left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #fff;
+  border: 1px solid var(--l-line);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: var(--l-ink-soft);
+  padding: 5px 14px;
+}
+.landing-shot {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  background: repeating-linear-gradient(-45deg, #f4f6f9 0 12px, #f0f2f6 12px 24px);
+  color: var(--l-ink-faint);
+  text-align: center;
+  padding: 28px;
+}
+.landing-shot.r43 { aspect-ratio: 4 / 3; }
+.landing-shot img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+
+/* ===== Urdu measurement receipt (ported from the original landing) ===== */
+.landing-receipt {
+  background: #fff;
+  width: 330px;
+  max-width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(14, 17, 22, 0.06), 0 24px 56px rgba(14, 17, 22, 0.12);
+  padding: 24px 24px 30px;
+  position: relative;
+  border: 1px solid var(--l-line);
+}
+.landing-receipt::before,
+.landing-receipt::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 10px;
+  background-image: radial-gradient(circle at 6px 0, transparent 6px, #fff 6px);
+  background-size: 12px 10px;
+}
+.landing-receipt::before { top: -9px; transform: rotate(180deg); }
+.landing-receipt::after { bottom: -9px; }
+.landing-rc-brand {
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 2px dashed var(--l-line2); padding-bottom: 14px; margin-bottom: 14px;
+}
+.landing-rc-brand .urdu { font-size: 1.5rem; font-weight: 700; line-height: 1.4; }
+.landing-rc-brand .en { text-align: right; font-size: 0.7rem; color: var(--l-ink-soft); font-weight: 600; }
+.landing-rc-brand .en b { display: block; font-size: 1rem; color: var(--l-ink); }
+.landing-rc-meta { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--l-ink-soft); margin-bottom: 16px; }
+.landing-rc-meta .urdu { font-size: 0.95rem; color: var(--l-ink); }
+.landing-rc-title { text-align: center; background: var(--l-ink); color: #fff; border-radius: 7px; padding: 8px; margin-bottom: 14px; }
+.landing-rc-title .urdu { font-size: 1.05rem; font-weight: 700; }
+.landing-rc-measure { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; direction: rtl; }
+.landing-rc-measure .m { display: flex; justify-content: space-between; border-bottom: 1px dotted var(--l-line2); padding-bottom: 5px; }
+.landing-rc-measure .m .urdu { font-size: 0.92rem; }
+.landing-rc-measure .m b { font-weight: 700; font-size: 0.95rem; }
+.landing-rc-foot { margin-top: 16px; border-top: 2px dashed var(--l-line2); padding-top: 12px; display: flex; justify-content: space-between; align-items: center; }
+.landing-rc-foot .urdu { font-size: 0.82rem; color: var(--l-ink-soft); }
+.landing-rc-stamp { font-weight: 700; color: var(--l-blue); border: 1.5px solid var(--l-blue); border-radius: 8px; padding: 4px 10px; font-size: 0.78rem; transform: rotate(-5deg); }
+.landing-receipt-tag {
+  position: absolute; top: -16px; right: -12px;
+  background: var(--l-ink); color: #fff; font-weight: 600; font-size: 0.78rem;
+  padding: 7px 13px; border-radius: 9px; box-shadow: 0 1px 3px rgba(14,17,22,.2);
+  transform: rotate(5deg); z-index: 4;
+}
+
+/* ===== dotted texture for the dark sections ===== */
+.landing-dots::before {
+  content: "";
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ===== marquee for the trust strip ===== */
+.landing-marquee { display: flex; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+.landing-marquee-track { display: flex; gap: 2.5rem; padding-inline: 1.25rem; flex: none; min-width: 100%; animation: landing-scroll 26s linear infinite; }
+@keyframes landing-scroll { to { transform: translateX(-100%); } }
+.landing-marquee:hover .landing-marquee-track { animation-play-state: paused; }
+
+/* ===== floating WhatsApp button ===== */
+.landing-wa-float {
+  position: fixed; bottom: 24px; right: 24px; z-index: 80;
+  display: flex; align-items: center; background: var(--wa); color: #fff;
+  border-radius: 100px; box-shadow: 0 10px 30px rgba(37, 211, 102, 0.45);
+  height: 58px; overflow: hidden;
+}
+.landing-wa-ic { width: 58px; height: 58px; display: grid; place-items: center; flex: none; animation: landing-wapulse 2.6s infinite; }
+.landing-wa-txt { font-weight: 600; font-size: 0.92rem; white-space: nowrap; max-width: 0; opacity: 0; overflow: hidden; transition: max-width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.25s, padding 0.3s; line-height: 1.15; }
+.landing-wa-txt small { display: block; font-weight: 500; font-size: 0.72rem; opacity: 0.85; }
+.landing-wa-float:hover .landing-wa-txt { max-width: 200px; opacity: 1; padding-right: 20px; }
+@keyframes landing-wapulse { 0% { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.5); } 70% { box-shadow: 0 0 0 16px rgba(37, 211, 102, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0); } }
+
+/* ===== scroll reveal ===== */
+.landing-page .reveal { opacity: 0; transform: translateY(22px); transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.landing-page .reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .landing-page .reveal { opacity: 1; transform: none; transition: none; }
+  .landing-marquee-track, .landing-wa-ic { animation: none; }
+}
+
+@media (max-width: 640px) {
+  .landing-wa-txt { display: none; }
+}
