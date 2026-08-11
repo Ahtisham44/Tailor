@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { useAuth } from "@/context/AuthContext"
 import { useLang } from "@/hooks/useLang"
@@ -292,6 +292,8 @@ export default function OrdersPage() {
   const [step,        setStep]        = useState(1)
   const [selCusts,    setSelCusts]    = useState({})
   const [custSearch,  setCustSearch]  = useState("")
+  const [custResults, setCustResults] = useState([])
+  const [custSearching, setCustSearching] = useState(false)
   const [orderNum,    setOrderNum]    = useState("")
   const [orderNumSeq, setOrderNumSeq] = useState(null)
   const [orderStatus, setOrderStatus] = useState("pending")
@@ -346,6 +348,34 @@ export default function OrdersPage() {
     const r2 = await api.sbQ("item_categories", { order: "id.asc" })
     setCatsCache(r2.data || [])
   }
+
+  // New Order customer search is server-side (over the full customer table),
+  // matching the Customers module. Client-side filtering over the first 500
+  // loaded rows silently hid every customer older than that window.
+  async function runCustSearch(q) {
+    if (!q.trim()) { setCustResults([]); return }
+    setCustSearching(true)
+    const escaped = q.trim().replace(/%/g, "%25").replace(/&/g, "%26")
+    const r = await api.sbQ("customers", {
+      query: "deleted_at=is.null&or=(first_name.ilike.*" + escaped + "*,phone.ilike.*" + escaped + "*,customer_number.ilike.*" + escaped + "*)",
+      order: "created_at.desc",
+      limit: 50,
+    })
+    setCustSearching(false)
+    if (!r.error) setCustResults(r.data || [])
+  }
+
+  const debouncedCustSearch = useCallback(debounce(v => runCustSearch(v), 280), [])
+
+  // Combined lookup: the newest-500 batch plus any server search results, so
+  // selected/search result customers always resolve to a name in the picker,
+  // the ItemsPanel and the chips even when they fall outside the 500-row load.
+  const custAll = useMemo(() => {
+    const m = new Map()
+    customers.forEach(c => m.set(String(c.id), c))
+    custResults.forEach(c => m.set(String(c.id), c))
+    return [...m.values()]
+  }, [customers, custResults])
 
   // ── Load orders ────────────────────────────────────────────────────
   const fetchPage = useCallback(async (append = false) => {
@@ -405,6 +435,7 @@ export default function OrdersPage() {
   function custMap() {
     const m = {}
     customers.forEach(c => { m[String(c.id)] = c })
+    custResults.forEach(c => { m[String(c.id)] = c })
     return m
   }
 
@@ -930,7 +961,7 @@ export default function OrdersPage() {
     return (
       <>
         {custIds.map((cid) => {
-          const c   = customers.find(x => String(x.id) === String(cid)) || {}
+          const c   = custAll.find(x => String(x.id) === String(cid)) || {}
           const s   = sel[cid] || { items: [] }
           return (
             <div key={cid} style={{ border: "1.5px solid hsl(var(--border))", borderRadius: "var(--radius)", marginBottom: 12, overflow: "hidden" }}>
@@ -1231,10 +1262,7 @@ export default function OrdersPage() {
     `
   }
 
-  const filteredCusts = customers.filter(c =>
-    !custSearch || nm(c).toLowerCase().includes(custSearch.toLowerCase()) ||
-    (c.phone || "").includes(custSearch) || (c.customer_number || "").toLowerCase().includes(custSearch.toLowerCase())
-  ).slice(0, 60)
+  const shownCusts = custSearch.trim() ? custResults : customers.slice(0, 60)
 
   const STATUS_LABELS = { pending: "Pending", in_progress: "In Progress", ready: "Ready", delivered: "Delivered", cancelled: "Cancelled" }
 
@@ -1286,10 +1314,11 @@ export default function OrdersPage() {
 
           {step === 1 && (
             <div id="ord-panel-1">
-              <Input placeholder="Search customers..." value={custSearch} onChange={e => setCustSearch(e.target.value)} style={{ marginBottom: 10 }} />
+              <Input placeholder="Search customers..." value={custSearch} onChange={e => { setCustSearch(e.target.value); debouncedCustSearch(e.target.value) }} style={{ marginBottom: 10 }} />
               <div id="of-cust-list" style={{ display: "flex", flexDirection: "column", maxHeight: 320, overflowY: "auto" }}>
-                {filteredCusts.length === 0 ? <p style={{ padding: "20px 0", textAlign: "center", color: "hsl(var(--muted-foreground))", fontSize: 13 }}>No customers found</p> :
-                  filteredCusts.map((c) => {
+                {custSearching ? <p style={{ padding: "20px 0", textAlign: "center", color: "hsl(var(--muted-foreground))", fontSize: 13 }}>Searching…</p> :
+                shownCusts.length === 0 ? <p style={{ padding: "20px 0", textAlign: "center", color: "hsl(var(--muted-foreground))", fontSize: 13 }}>No customers found</p> :
+                  shownCusts.map((c) => {
                     const sel = !!selCusts[c.id]
                     return (
                       <div key={c.id} className={"ord-cust-card" + (sel ? " selected" : "")} onClick={() => toggleSelCust(c.id)}
@@ -1310,7 +1339,7 @@ export default function OrdersPage() {
               {Object.keys(selCusts).length > 0 && (
                 <div id="ord-sel-preview" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
                   {Object.keys(selCusts).map(cid => {
-                    const c = customers.find(x => String(x.id) === String(cid)) || {}
+                    const c = custAll.find(x => String(x.id) === String(cid)) || {}
                     return <div key={cid} className="ord-chip">{nm(c)} <span onClick={() => toggleSelCust(cid)} style={{ cursor: "pointer", opacity: 0.7 }}>✕</span></div>
                   })}
                 </div>
@@ -1322,7 +1351,7 @@ export default function OrdersPage() {
             <div id="ord-panel-2">
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
                 {Object.keys(selCusts).map(cid => {
-                  const c = customers.find(x => String(x.id) === String(cid)) || {}
+                  const c = custAll.find(x => String(x.id) === String(cid)) || {}
                   return <div key={cid} className="ord-chip">{nm(c)}</div>
                 })}
               </div>
