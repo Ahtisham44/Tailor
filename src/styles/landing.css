@@ -1,5 +1,5 @@
 /* ===========================================================================
-   Tailor 365 — marketing landing page styles
+   Tailor 24/7 — marketing landing page styles
    Scoped under `.landing-page`. The block re-pins the light shadcn theme
    tokens so shadcn/ui components (Button, Card, Badge) always render in their
    light form here, even when the app has toggled `.dark` on <html>.

@@ -226,9 +226,9 @@ const PRICE_FEATS = [
 const FAQS = [
   { q: "Is my customer data safe?", a: "Yes. Your customers and measurements are saved securely in your account, not on a register that can be lost or torn. Only you can see your shop's data." },
   { q: "Do I need internet to use it?", a: "You need internet to log in and save your work — the same connection you already use for WhatsApp." },
-  { q: "Can I use it on my phone?", a: "Yes. Tailor 365 works on both phone and desktop. Most tailors run the whole shop from their phone. You log in with your phone number." },
+  { q: "Can I use it on my phone?", a: "Yes. Tailor 24/7 works on both phone and desktop. Most tailors run the whole shop from their phone. You log in with your phone number." },
   { q: "How do I add my old customers?", a: "Add them as they come in, or enter your regulars from your register one by one. Each gets a customer number automatically, so they're easy to find next time." },
-  { q: "Can I print the slip in Urdu?", a: "Yes. Tailor 365 prints a clean measurement slip in Urdu (right-to-left), ready for the counter and easy for your karigar to read." },
+  { q: "Can I print the slip in Urdu?", a: "Yes. Tailor 24/7 prints a clean measurement slip in Urdu (right-to-left), ready for the counter and easy for your karigar to read." },
   { q: "Is it really free?", a: "It's free to start, no card needed. You can begin adding customers today with nothing to lose." },
 ]
 
@@ -241,12 +241,11 @@ export default function LandingPage() {
       <header className="sticky top-0 z-[60] border-b border-[#e6e9ee] bg-white/[0.82] backdrop-blur-md">
         <div className="mx-auto flex h-[68px] max-w-[1200px] items-center gap-4 px-6">
           <a href="#top" className="flex items-center gap-2.5 text-[1.14rem] font-bold tracking-[-0.02em]">
-            <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-[#0e1116] text-[1.05rem] font-bold text-white">T</span>
-            Tailor&nbsp;365
+            <img src="/Logo letters.png" alt="Tailor 24/7" className="h-9 w-auto rounded-[10px]" />
           </a>
           <nav className="ml-3 hidden gap-7 text-[0.95rem] text-[#5b636e] md:flex">
             <a href="#features" className="hover:text-[#0e1116]">Features</a>
-            <a href="#why" className="hover:text-[#0e1116]">Why Tailor 365</a>
+            <a href="#why" className="hover:text-[#0e1116]">Why Tailor 24/7</a>
             <a href="#pricing" className="hover:text-[#0e1116]">Pricing</a>
             <a href="#faq" className="hover:text-[#0e1116]">FAQ</a>
           </nav>
@@ -270,7 +269,7 @@ export default function LandingPage() {
             Run your whole tailor shop <span className="landing-serif font-normal text-[#5b636e]">from one screen.</span>
           </h1>
           <p className="reveal mx-auto mt-6 max-w-[52ch] text-[1.2rem] text-[#5b636e]">
-            Tailor 365 keeps every customer, measurement, order and rupee in one place. Find any customer in 2 seconds, print their slip in Urdu, and see exactly how your shop is doing.
+            Tailor 24/7 keeps every customer, measurement, order and rupee in one place. Find any customer in 2 seconds, print their slip in Urdu, and see exactly how your shop is doing.
           </p>
           <div className="reveal mt-8 flex flex-wrap items-center justify-center gap-3.5">
             <PillPrimary to={SIGNUP_URL}>Create Free Account</PillPrimary>
@@ -304,7 +303,7 @@ export default function LandingPage() {
 
           {/* product shot */}
           <div className="reveal mx-auto mt-14 max-w-[1040px]">
-            <BrowserFrame addr="tailor-365.app / reports">
+            <BrowserFrame addr="tailor-24-7.app / reports">
               <ShotPlaceholder icon={BarChart3} title="Reports dashboard" note="Drop your /reports screenshot here (16:9)" />
             </BrowserFrame>
           </div>
@@ -351,10 +350,10 @@ export default function LandingPage() {
             "Versioned history — old measurements stay safe",
             "Search by name or phone in one tap",
           ]}
-          cta={<PillPrimary to={SIGNUP_URL}>Try Tailor 365 Free</PillPrimary>}
+          cta={<PillPrimary to={SIGNUP_URL}>Try Tailor 24/7 Free</PillPrimary>}
           caption="Find any customer's measurements in 2 seconds"
           visual={
-            <BrowserFrame addr="tailor-365.app / customers" ratio43>
+            <BrowserFrame addr="tailor-24-7.app / customers" ratio43>
               <ShotPlaceholder icon={Users} title="Customers list" note="Drop your customers / measurement screenshot" />
             </BrowserFrame>
           }
@@ -395,7 +394,7 @@ export default function LandingPage() {
                 </div>
                 <div className="landing-rc-foot">
                   <span className="urdu">ڈیلیوری: ۲۸ جون</span>
-                  <span className="landing-rc-stamp">Tailor 365</span>
+                  <span className="landing-rc-stamp">Tailor 24/7</span>
                 </div>
               </div>
             </div>
@@ -418,7 +417,7 @@ export default function LandingPage() {
           cta={<PillPrimary to={SIGNUP_URL}>Start Free</PillPrimary>}
           caption="See every order, price and payment at a glance"
           visual={
-            <BrowserFrame addr="tailor-365.app / orders" ratio43>
+            <BrowserFrame addr="tailor-24-7.app / orders" ratio43>
               <ShotPlaceholder icon={ClipboardCheck} title="Orders / order detail" note="Drop your orders list or order-detail screenshot" />
             </BrowserFrame>
           }
@@ -569,7 +568,7 @@ export default function LandingPage() {
               Your registers are one spill away from <span className="landing-serif font-normal text-zinc-400">disappearing.</span>
             </h2>
             <p className="mx-auto mt-4 max-w-[46ch] text-[1.14rem] text-white/70">
-              Move your customers and measurements to Tailor 365 today. Free to start, ready in minutes.
+              Move your customers and measurements to Tailor 24/7 today. Free to start, ready in minutes.
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3.5">
               <Button asChild className="h-12 gap-3 rounded-full bg-white pl-6 pr-2 text-[0.98rem] font-semibold text-[#0e1116] hover:bg-white/90">
@@ -592,15 +591,14 @@ export default function LandingPage() {
           <div className="grid gap-9 md:grid-cols-2 lg:grid-cols-[1.7fr_1fr_1fr_1.2fr]">
             <div>
               <a href="#top" className="mb-3.5 flex items-center gap-2.5 text-[1.14rem] font-bold tracking-[-0.02em] text-[#0e1116]">
-                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-[#0e1116] text-white">T</span>
-                Tailor&nbsp;365
+                <img src="/Logo letters.png" alt="Tailor 24/7" className="h-9 w-auto rounded-[10px]" />
               </a>
               <p className="mb-5 max-w-[32ch] text-[0.95rem]">The CRM built for tailor shops. Customers, measurements, orders and reports — in one place.</p>
               <a href={WA_LINK} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2.5 rounded-xl bg-[#25d366] px-4 py-2.5 text-[0.95rem] font-semibold text-white">
                 <WhatsAppIcon className="h-5 w-5" /> WhatsApp: {WA_DISPLAY}
               </a>
             </div>
-            <FooterCol title="Product" links={[["Features", "#features"], ["Why Tailor 365", "#why"], ["Pricing", "#pricing"], ["FAQ", "#faq"]]} />
+            <FooterCol title="Product" links={[["Features", "#features"], ["Why Tailor 24/7", "#why"], ["Pricing", "#pricing"], ["FAQ", "#faq"]]} />
             <FooterCol title="Get started" links={[["Create free account", SIGNUP_URL], ["Log in", SIGNUP_URL], ["Talk to us", WA_LINK]]} />
             <div>
               <h5 className="mb-4 text-[0.78rem] font-bold uppercase tracking-[0.08em] text-[#0e1116]">Contact</h5>
@@ -610,7 +608,7 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="mt-10 flex flex-wrap justify-between gap-3.5 border-t border-[#e6e9ee] pt-6 text-[0.86rem]">
-            <span>© {new Date().getFullYear()} Tailor 365. Made for Pakistani tailors.</span>
+            <span>© {new Date().getFullYear()} Tailor 24/7. Made for Pakistani tailors.</span>
             <span className="flex items-center gap-1.5"><ScrollText className="h-4 w-4" /> Privacy · Terms</span>
           </div>
         </div>

@@ -382,18 +382,34 @@ export default function OrdersPage() {
     if (loadingRef.current) return
     loadingRef.current = true
     setLoading(true)
-    const custMap = {}
-    customers.forEach(c => { custMap[String(c.id)] = c })
+    const lookup = {}
+    customers.forEach(c => { lookup[String(c.id)] = c })
 
     const filters = []
     if (query) {
-      const q = query.toLowerCase()
-      const matchedIds = customers.filter(c =>
-        nm(c).toLowerCase().includes(q) || (c.phone || "").includes(q) || (c.customer_number || "").toLowerCase().includes(q)
-      ).map(c => String(c.id))
-      const orParts = ["order_number.ilike.*" + q + "*"]
+      const escaped = query.trim().replace(/%/g, "%25").replace(/&/g, "%26")
+      const rC = await api.sbQ("customers", {
+        query: "deleted_at=is.null&or=(first_name.ilike.*" + escaped + "*,phone.ilike.*" + escaped + "*,customer_number.ilike.*" + escaped + "*)",
+        order: "created_at.desc",
+        limit: 100,
+      })
+      const matched = rC.data || []
+      if (matched.length) {
+        // Merge matches into custResults so order cards resolve names even for
+        // customers that fall outside the newest-500 batch.
+        setCustResults(prev => {
+          const m = new Map(prev.map(c => [String(c.id), c]))
+          matched.forEach(c => m.set(String(c.id), c))
+          return [...m.values()]
+        })
+      }
+      const matchedIds = matched.map(c => String(c.id))
+      const orParts = []
+      if (/^[a-z0-9 ]+$/i.test(query)) {
+        orParts.push("order_number.ilike.*" + query.toLowerCase() + "*")
+      }
       matchedIds.forEach(cid => orParts.push("customer_ids.ilike.*" + cid + "*"))
-      filters.push("or=(" + orParts.join(",") + ")")
+      if (orParts.length) filters.push("or=(" + orParts.join(",") + ")")
     }
     if (statusFilter) filters.push("status=eq." + statusFilter)
 
@@ -407,6 +423,26 @@ export default function OrdersPage() {
     setHasMore(batch.length === PAGE)
     offsetRef.current += batch.length
     loadPaidForOrders(batch)
+
+    // Fetch any customers referenced by these orders that aren't in lookup yet.
+    // This fixes the bug where orders reference customers outside the newest-500 batch.
+    const allCustIds = [...new Set(batch.flatMap(o => {
+      try { return JSON.parse(o.customer_ids || "[]") } catch { return [] }
+    }))]
+    const missingCustIds = allCustIds.filter(id => !lookup[id])
+    if (missingCustIds.length) {
+      const rMiss = await api.sbQ("customers", {
+        query: "id=in.(" + missingCustIds.join(",") + ")",
+        limit: missingCustIds.length,
+      })
+      if (rMiss.data) {
+        setCustResults(prev => {
+          const m = new Map(prev.map(c => [String(c.id), c]))
+          rMiss.data.forEach(c => m.set(String(c.id), c))
+          return [...m.values()]
+        })
+      }
+    }
   }, [query, statusFilter, customers, api])
 
   useEffect(() => {

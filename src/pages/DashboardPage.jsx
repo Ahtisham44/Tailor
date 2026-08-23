@@ -7,7 +7,7 @@ import { useLang } from "@/hooks/useLang"
 import CustomersPage from "./CustomersPage"
 
 export default function DashboardPage() {
-  const { api } = useAuth()
+  const { api, token } = useAuth()
   const { lang } = useLang()
   const t = (k) => tr(k, lang)
   const navigate = useNavigate()
@@ -16,6 +16,8 @@ export default function DashboardPage() {
 
   const [customers,   setCustomers]   = useState([])
   const [orders,      setOrders]      = useState([])
+  const [totalCustomers, setTotalCustomers] = useState(0)
+  const [totalOrders, setTotalOrders] = useState(0)
   const [dbStatus,    setDbStatus]    = useState("loading")
   const [loading,     setLoading]     = useState(true)
 
@@ -23,12 +25,32 @@ export default function DashboardPage() {
 
   async function loadData() {
     setLoading(true)
-    const [rC, rO] = await Promise.all([
-      api.sbQ("customers", { query: "deleted_at=is.null", order: "created_at.desc", limit: 200 }),
+    const [rC, rO, rCountC, rCountO] = await Promise.all([
+      api.sbQ("customers", { query: "deleted_at=is.null", order: "created_at.desc", limit: 10000 }),
       api.sbQ("orders",    { order: "created_at.desc", limit: 500 }),
+      // Accurate count: use HEAD request with Count header for customers
+      fetch(import.meta.env.VITE_SUPABASE_URL + "/rest/v1/customers?deleted_at=is.null&select=id", {
+        method: "HEAD",
+        headers: {
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          Authorization: "Bearer " + (token || import.meta.env.VITE_SUPABASE_ANON_KEY),
+          Prefer: "count=exact",
+        },
+      }).then(r => ({ ok: r.ok, count: parseInt(r.headers.get("content-range")?.split("/")[1] || "0", 10) })),
+      // Accurate count for orders
+      fetch(import.meta.env.VITE_SUPABASE_URL + "/rest/v1/orders?select=id", {
+        method: "HEAD",
+        headers: {
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          Authorization: "Bearer " + (token || import.meta.env.VITE_SUPABASE_ANON_KEY),
+          Prefer: "count=exact",
+        },
+      }).then(r => ({ ok: r.ok, count: parseInt(r.headers.get("content-range")?.split("/")[1] || "0", 10) })),
     ])
     setCustomers(rC.data || [])
     setOrders(rO.data    || [])
+    setTotalCustomers(rCountC.ok ? rCountC.count : (rC.data?.length || 0))
+    setTotalOrders(rCountO.ok ? rCountO.count : (rO.data?.length || 0))
     const ping = await api.sbQ("customers", { limit: 1 })
     setDbStatus(ping.error ? "err" : "ok")
     setLoading(false)
@@ -109,11 +131,11 @@ export default function DashboardPage() {
       <div className="krow">
         <div className="kpi" data-tour="kpi-customers" onClick={() => navigate("/customers")} style={{ cursor: "pointer" }}>
           <div className="kl">{t("total_customers")}</div>
-          {loading ? <div className="spin" style={{ marginTop: 8 }} /> : <div className="kv">{customers.length}</div>}
+          {loading ? <div className="spin" style={{ marginTop: 8 }} /> : <div className="kv">{totalCustomers}</div>}
         </div>
         <div className="kpi" onClick={() => navigate("/orders")} style={{ cursor: "pointer" }}>
           <div className="kl">{t("total_orders")}</div>
-          {loading ? <div className="spin" style={{ marginTop: 8 }} /> : <div className="kv">{orders.length}</div>}
+          {loading ? <div className="spin" style={{ marginTop: 8 }} /> : <div className="kv">{totalOrders}</div>}
         </div>
         <div className="kpi">
           <div className="kl">{t("new_this_month")}</div>

@@ -116,13 +116,7 @@ export default function Layout({ children }) {
         <div className="sb-top">
           {/* Header — admins see the product brand; tailors see their shop branding */}
           <div className="sb-logo">
-            {!isAdmin && getLogoUrl() ? (
-              <img src={getLogoUrl()} alt="" className="sb-mark"
-                style={{ objectFit: "cover", padding: 0 }}
-                onError={e => { e.currentTarget.style.display = "none" }} />
-            ) : (
-              <div className="sb-mark">{isAdmin ? "T" : (getShopName()[0] || "T").toUpperCase()}</div>
-            )}
+            <img src="/Logo letters.png" alt="Tailor 24/7" className="sb-mark h-10 w-auto" style={{ objectFit: "contain", padding: 0 }} />
             {isAdmin
               ? <span className="sb-brand">Tailor<span>CRM</span></span>
               : <span className="sb-brand" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{getShopName()}</span>}
