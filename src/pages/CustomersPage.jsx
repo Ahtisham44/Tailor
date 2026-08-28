@@ -7,7 +7,7 @@ import { useLang } from "@/hooks/useLang"
 import { useTourController } from "@/context/TourContext"
 import { tr, CATS, MEAS_GROUPS, SQ_STYLE_SELECTORS, COLORS, BOOK_SIZE,
   resolveCategoryFields, printUrLabel, printUrCat, printUrValue } from "@/lib/config"
-import { fmtDate, debounce, gradientAvatar } from "@/lib/utils"
+import { fmtDate, debounce, gradientAvatar, urduFold } from "@/lib/utils"
 import { Button }  from "@/components/ui/button"
 import { Input }   from "@/components/ui/input"
 import { Label }   from "@/components/ui/label"
@@ -664,7 +664,7 @@ export default function CustomersPage() {
     setLoading(true)
     const filters = ["deleted_at=is.null"]
     if (query) {
-      const q = query.replace(/%/g, "%25").replace(/&/g, "%26")
+      const q = urduFold(query).replace(/%/g, "%25").replace(/&/g, "%26")
       filters.push("or=(first_name.ilike.*" + q + "*,phone.ilike.*" + q + "*,customer_number.ilike.*" + q + "*)")
     }
     const order = sortOrder + "." + (sortOrder === "first_name" || sortOrder === "customer_number" ? "asc" : "desc") + ".nullslast"
@@ -781,7 +781,7 @@ export default function CustomersPage() {
   async function saveCust() {
     if (!formName.trim()) { toast.error("Full name is required"); return }
     setSaving(true)
-    const body = { first_name: formName.trim() }
+    const body = { first_name: urduFold(formName.trim()) }
     if (formPhone.trim()) body.phone = formPhone.trim()
     if (formNotes.trim()) body.notes = formNotes.trim()
 

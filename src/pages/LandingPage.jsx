@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { gradientAvatar } from "@/lib/utils"
 import "@/styles/landing.css"
+import dashL from "@/assets/dash L.png"
+import reportS from "@/assets/Report S.png"
+import measS from "@/assets/meas S.png"
+import createOrderS from "@/assets/createOrder S.png"
+import viewOrderS from "@/assets/View order S.png"
 
 /* -------------------------------------------------------------------------
    TODO — replace these before going live:
@@ -96,8 +101,7 @@ function BrowserFrame({ addr, ratio43, children }) {
     <div className="landing-frame">
       <div className="landing-frame-top">
         <i /><i /><i />
-        <span className="landing-frame-addr">
-          <ShieldCheck className="h-[13px] w-[13px] text-[#16a34a]" />
+        <span className="landing-frame-addr">          
           {addr}
         </span>
       </div>
@@ -261,7 +265,7 @@ export default function LandingPage() {
       {/* ===== HERO ===== */}
       <section id="top" className="relative overflow-hidden pb-10 pt-[72px]">
         <div className="landing-hero-wash" />
-        <div className="relative z-[1] mx-auto max-w-[1200px] px-6 text-center">
+        <div className="relative z-[1] mx-auto max-w-[1440px] px-6 text-center">
           <div className="reveal flex justify-center">
             <Eyebrow dot>The CRM built for tailor shops</Eyebrow>
           </div>
@@ -302,10 +306,13 @@ export default function LandingPage() {
           </div>
 
           {/* product shot */}
-          <div className="reveal mx-auto mt-14 max-w-[1040px]">
+          <div className="reveal mt-14 w-full justify-left max-w-[1280px]">
             <BrowserFrame addr="tailor-24-7.app / reports">
-              <ShotPlaceholder icon={BarChart3} title="Reports dashboard" note="Drop your /reports screenshot here (16:9)" />
+              <img src={dashL} alt="Tailor 24/7 reports screenshot" className="w-full" />
             </BrowserFrame>
+            <div>
+              <img src={reportS} alt="Tailor 24/7 reports screenshot" className="absolute -right-4 -bottom-8 w-auto h-1/2 border border-slate-300 rounded-3xl box-shadow shadow-2xl" />              
+            </div>
           </div>
         </div>
       </section>
@@ -353,9 +360,9 @@ export default function LandingPage() {
           cta={<PillPrimary to={SIGNUP_URL}>Try Tailor 24/7 Free</PillPrimary>}
           caption="Find any customer's measurements in 2 seconds"
           visual={
-            <BrowserFrame addr="tailor-24-7.app / customers" ratio43>
-              <ShotPlaceholder icon={Users} title="Customers list" note="Drop your customers / measurement screenshot" />
-            </BrowserFrame>
+            <div className="flex justify-center">
+              <img src={measS} alt="Tailor 24/7 measurements screenshot" className="w-8/12 h-auto border border-slate-300 rounded-3xl box-shadow shadow-2xl" />
+            </div>
           }
         />
       </section>
@@ -379,8 +386,8 @@ export default function LandingPage() {
               <div className="landing-receipt">
                 <span className="landing-receipt-tag urdu">اردو پرچی</span>
                 <div className="landing-rc-brand">
-                  <span className="urdu">سیفی ٹیلرز</span>
-                  <span className="en"><b>Saifi Tailors</b>Gents &amp; Ladies</span>
+                  <span className="urdu">ٹیلرز</span>
+                  <span className="en"><b>Tailors 24/7</b>Gents &amp; Ladies</span>
                 </div>
                 <div className="landing-rc-meta">
                   <span className="urdu">گاہک: آصف خان</span>
@@ -417,9 +424,10 @@ export default function LandingPage() {
           cta={<PillPrimary to={SIGNUP_URL}>Start Free</PillPrimary>}
           caption="See every order, price and payment at a glance"
           visual={
-            <BrowserFrame addr="tailor-24-7.app / orders" ratio43>
-              <ShotPlaceholder icon={ClipboardCheck} title="Orders / order detail" note="Drop your orders list or order-detail screenshot" />
-            </BrowserFrame>
+            <div className="flex justify-center gap-2 -skew-x-6 skew-y-2">
+              <img src={createOrderS} alt="Tailor 24/7 measurements screenshot" className="z-0 -mr-12 w-8/12 h-auto mt-12 h-auto border border-slate-300 rounded-3xl box-shadow shadow-2xl" />
+              <img src={viewOrderS} alt="Tailor 24/7 measurements screenshot" className="w-8/12 h-auto border border-slate-300 rounded-3xl box-shadow shadow-2xl" />
+            </div>
           }
         />
       </section>
@@ -608,7 +616,7 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="mt-10 flex flex-wrap justify-between gap-3.5 border-t border-[#e6e9ee] pt-6 text-[0.86rem]">
-            <span>© {new Date().getFullYear()} Tailor 24/7. Made for Pakistani tailors.</span>
+            <span>© {new Date().getFullYear()} Tailor 24/7.</span>
             <span className="flex items-center gap-1.5"><ScrollText className="h-4 w-4" /> Privacy · Terms</span>
           </div>
         </div>

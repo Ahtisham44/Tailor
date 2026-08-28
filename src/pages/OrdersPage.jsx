@@ -5,7 +5,7 @@ import { useLang } from "@/hooks/useLang"
 import { useSubscription } from "@/hooks/useSubscription"
 import { useTourController } from "@/context/TourContext"
 import { tr, CATS } from "@/lib/config"
-import { fmtDate, cap, debounce, gradientAvatar } from "@/lib/utils"
+import { fmtDate, cap, debounce, gradientAvatar, urduFold } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input }  from "@/components/ui/input"
 import { Label }  from "@/components/ui/label"
@@ -355,7 +355,7 @@ export default function OrdersPage() {
   async function runCustSearch(q) {
     if (!q.trim()) { setCustResults([]); return }
     setCustSearching(true)
-    const escaped = q.trim().replace(/%/g, "%25").replace(/&/g, "%26")
+    const escaped = urduFold(q.trim()).replace(/%/g, "%25").replace(/&/g, "%26")
     const r = await api.sbQ("customers", {
       query: "deleted_at=is.null&or=(first_name.ilike.*" + escaped + "*,phone.ilike.*" + escaped + "*,customer_number.ilike.*" + escaped + "*)",
       order: "created_at.desc",
@@ -387,7 +387,7 @@ export default function OrdersPage() {
 
     const filters = []
     if (query) {
-      const escaped = query.trim().replace(/%/g, "%25").replace(/&/g, "%26")
+      const escaped = urduFold(query.trim()).replace(/%/g, "%25").replace(/&/g, "%26")
       const rC = await api.sbQ("customers", {
         query: "deleted_at=is.null&or=(first_name.ilike.*" + escaped + "*,phone.ilike.*" + escaped + "*,customer_number.ilike.*" + escaped + "*)",
         order: "created_at.desc",
@@ -816,6 +816,26 @@ export default function OrdersPage() {
     const rItems = await api.sbQ("order_items", { query: "order_id=eq." + id, order: "id.asc" })
     setViewItems(rItems.data || [])
     await loadViewPayments(id)
+
+    // Fetch any customers referenced by this order that aren't in the in-memory cache,
+    // so the invoice print always shows the customer number.
+    const uniqueCids = [...new Set((rItems.data || []).map(i => String(i.customer_id)))]
+    const cm = custMap()
+    const missingCustIds = uniqueCids.filter(cid => !cm[cid])
+    if (missingCustIds.length) {
+      const rMiss = await api.sbQ("customers", {
+        query: "id=in.(" + missingCustIds.join(",") + ")",
+        limit: missingCustIds.length,
+      })
+      if (rMiss.data) {
+        setCustResults(prev => {
+          const m = new Map(prev.map(c => [String(c.id), c]))
+          rMiss.data.forEach(c => m.set(String(c.id), c))
+          return [...m.values()]
+        })
+      }
+    }
+
     setViewLoading(false)
   }
 

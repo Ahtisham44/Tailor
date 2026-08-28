@@ -32,6 +32,15 @@ export function cap(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : ""
 }
 
+// Fold Urdu/Arabic yeh variants onto a single codepoint so Postgres `ilike`
+// matches across them. Stored names use Farsi yeh (U+06CC); typed input often
+// uses Arabic yeh (U+064A) or alef maksura (U+0649), which never match the
+// stored form in a raw ilike. Folding the query before filtering keeps search
+// working; write-time normalization keeps the DB canonical. ASCII is untouched.
+export function urduFold(s) {
+  return (s == null ? "" : String(s)).replace(/[\u064A\u0649]/g, "\u06CC")
+}
+
 export function fmtDate(d) {
   if (!d) return ""
   var dt = new Date(d)
