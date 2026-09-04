@@ -944,37 +944,66 @@ export default function OrdersPage() {
       <title>Invoice</title>
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0 }
-        body { font-family: "DM Sans", sans-serif; font-size: 13px; color: #111; background: #fff; padding: 32px }
-        .inv-outer { max-width: 640px; margin: 0 auto }
+        html { -webkit-text-size-adjust: 100%; text-size-adjust: 100% }
+        body { font-family: "DM Sans", sans-serif; font-size: 11px; color: #111; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact }
+        .inv-2up { width: 186mm; height: 271mm; margin: 0 auto; position: relative }
+        .inv-half { position: absolute; left: 0; width: 186mm; height: 135.5mm; display: flex; align-items: center; justify-content: center; overflow: hidden }
+        .inv-half.half-top    { top: 0 }
+        .inv-card { width: 135mm; height: 186mm; border: 1px dashed #bbb; padding: 10px 12px; transform: rotate(-90deg); transform-origin: center center; display: flex; flex-direction: column }
         table { width: 100%; border-collapse: collapse }
-        th { background: #ffffff; color: #000000; padding: 8px 10px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; text-align: left; border-bottom: 1px solid #E4DED5 }
-        td { padding: 8px 10px; border-bottom: 1px solid #E4DED5; font-size: 13px }
+        th { background: #ffffff; color: #000000; padding: 4px 6px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; text-align: left; border-bottom: 1px solid #E4DED5 }
+        td { padding: 4px 6px; border-bottom: 1px solid #E4DED5; font-size: 10.5px }
 
-        .inv-name          { font-weight: 700; font-size: 15px }
-        .inv-name-ds       { font-weight: 600; font-size: 15px }
-        .inv-price         { font-weight: 700; font-size: 15px }
-        .inv-qty           { text-align: center; font-size: 15px; font-weight: 700 }
-        .inv-row-label     { font-weight: 600; font-size: 15px }
-        .inv-invoice-label { font-size: 40px; font-weight: 700; color: #000000 }
-        .inv-date          { font-size: 13px; color: #000000 }
-        .inv-meta          { font-size: 13px; color: #000000 }
-        .inv-cust-name     { padding: 8px 0; margin-bottom: 14px; font-size: 14px; font-weight: 600 }
-        .inv-subtotal      { display: flex; gap: 32px; font-size: 15px; margin-bottom: 8px; }
-        .inv-discount      { display: flex; gap: 32px; font-size: 15px; margin-bottom: 8px; }
+        .inv-name          { font-weight: 700; font-size: 13px }
+        .inv-name-ds       { font-weight: 600; font-size: 13px }
+        .inv-price         { font-weight: 700; font-size: 13px }
+        .inv-qty           { text-align: center; font-size: 13px; font-weight: 700 }
+        .inv-row-label     { font-weight: 600; font-size: 13px }
+        .inv-invoice-label { font-size: 26px; font-weight: 700; color: #000000 }
+        .inv-date          { font-size: 10.5px; color: #000000 }
+        .inv-meta          { font-size: 10.5px; color: #000000 }
+        .inv-cust-name     { padding: 4px 0; margin-bottom: 6px; font-size: 13px; font-weight: 600 }
+        .inv-subtotal      { display: flex; gap: 24px; font-size: 13px; margin-bottom: 3px }
+        .inv-discount      { display: flex; gap: 24px; font-size: 13px; margin-bottom: 3px }
         .inv-discount-label{ color: #000000 }
         .inv-discount-val  { color: #000000 }
-        .inv-grand         { display: flex; gap: 32px; font-size: 15px; font-weight: 700; color: #000000; padding-top: 6px; border-top: 2px solid #000000; margin-top: 2px }
-        .inv-footer        { margin-top: 120px; text-align: center; font-size: 15px; line-height: 1.7 }
-        .inv-phone         { font-weight: 700; font-size: 17px; margin-top: 4px }
+        .inv-grand         { display: flex; gap: 24px; font-size: 13px; font-weight: 700; color: #000000; padding-top: 4px; border-top: 2px solid #000000; margin-top: 2px }
+        .inv-footer        { margin-top: 40px; padding-top: 6px; text-align: center; font-size: 10.5px; line-height: 1.55 }
+        .inv-phone         { font-weight: 700; font-size: 12px; margin-top: 2px }
+
+        .inv-2up svg { width: 12px !important; height: 12px !important }
+        .inv-card img[alt="Saifi Tailor Logo"] { width: 80px !important }
+        .inv-card table { font-size: 10.5px !important }
+        .inv-card [style*="margin-bottom:14px"] { margin-bottom: 6px !important; padding-bottom: 6px !important; gap: 6px !important }
+        .inv-card [style*="padding:12px 0"] { padding: 4px 0 !important }
+        .inv-card [style*="margin-top:8px"] { margin-top: 4px !important }
 
         @media print {
           body { padding: 0 }
-          @page { size: A4 portrait; margin: 12mm 14mm }
-          .inv-outer { max-width: 100% }
+          @page { size: A4 portrait; margin: 10mm 12mm }
+          table, tr, th, td { break-inside: avoid; page-break-inside: avoid }
         }
       </style>
-      </head><body><div class="inv-outer">${el.innerHTML}</div>
-      <script>window.onload=function(){window.print();}<\/script></body></html>`)
+      </head><body>${el.innerHTML}
+      <script>
+      function fitCards(){
+        var pxPerMm = 96/25.4;
+        var maxHmm = 186;
+        var halves = document.querySelectorAll('.inv-half');
+        for (var i=0;i<halves.length;i++){
+          var card = halves[i].firstElementChild;
+          if(!card) continue;
+          card.style.height = 'auto';
+          var needHmm = card.scrollHeight/pxPerMm;
+          card.style.height = '186mm';
+          if(needHmm>maxHmm && needHmm>0){
+            var s = maxHmm/needHmm;
+            card.style.transform = 'rotate(-90deg) scale('+s+')';
+          }
+        }
+      }
+      window.onload=function(){fitCards();window.print();};
+      <\/script></body></html>`)
     win.document.close()
   }
 
@@ -984,7 +1013,12 @@ export default function OrdersPage() {
     let custNames = ""
     try {
       const ids = JSON.parse(order.customer_ids || "[]")
-      custNames = ids.map(cid => { const c = cm[String(cid)]; return c ? nm(c) : "" }).filter(Boolean).join(", ")
+      custNames = ids.map(cid => {
+        const c = cm[String(cid)]
+        if (!c) return ""
+        const n = nm(c)
+        return c.customer_number ? `${n} (#${c.customer_number})` : n
+      }).filter(Boolean).join(", ")
     } catch {}
     const pay = paymentInfo(order.total_amount, paidByOrder[order.id])
     return (
@@ -1234,8 +1268,8 @@ export default function OrdersPage() {
     const paidSum = (payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
     const balance = Math.max((parseFloat(grand) || 0) - paidSum, 0)
 
-    return `
-      <div>
+    const cardHtml = `
+      <div class="inv-card">
         <div
           style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:12px;gap:10px">
           <div>
@@ -1314,8 +1348,11 @@ export default function OrdersPage() {
             <span class="inv-phone">0301-6058028</span>
           </div>
         </div>
-      </div>
-    `
+      </div>`
+    return `
+      <div class="inv-2up">
+        <div class="inv-half half-top">${cardHtml}</div>
+      </div>`
   }
 
   const shownCusts = custSearch.trim() ? custResults : customers.slice(0, 60)
