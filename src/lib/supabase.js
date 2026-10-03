@@ -29,7 +29,7 @@ export function makeSbApi(getToken, getUserId, onExpired, tryRefresh) {
 
   async function sbQ(table, opts = {}) {
     const method  = opts.method || "GET"
-    const params  = ["select=*"]
+    const params  = ["select=" + (opts.select || "*")]
     if (opts.query)  params.push(opts.query)
     if (opts.order)  params.push("order=" + opts.order)
     if (opts.limit)  params.push("limit=" + opts.limit)

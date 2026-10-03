@@ -1,0 +1,2 @@
+[functions.karigar-payment-reminders]
+verify_jwt = false

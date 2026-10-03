@@ -8,6 +8,7 @@ import { useTourController } from "@/context/TourContext"
 import { tr, CATS, MEAS_GROUPS, SQ_STYLE_SELECTORS, COLORS, BOOK_SIZE,
   resolveCategoryFields, printUrLabel, printUrCat, printUrValue } from "@/lib/config"
 import { fmtDate, debounce, gradientAvatar, urduFold } from "@/lib/utils"
+import { isCustomMeasurement, measurementLabel, sortMeasurementRows } from "@/lib/measurements"
 import { Button }  from "@/components/ui/button"
 import { Input }   from "@/components/ui/input"
 import { Label }   from "@/components/ui/label"
@@ -456,7 +457,7 @@ function buildVersionReceiptHtml(custData, item, ver, layout = "single", shop = 
   const selectorKeys = new Set(["gala_style","sq_baazu_style","sq_gala_style","sq_ghera_style"])
 
   // Build flat list of {label, display} pairs — all in Urdu
-  const pairs = (ver.vals || []).map(v => {
+  const pairs = sortMeasurementRows(ver.vals || []).map(v => {
     let display
     if (selectorKeys.has(v.measurement_key)) {
       display = v.value ? printUrValue(v.value) : "--"
@@ -466,11 +467,11 @@ function buildVersionReceiptHtml(custData, item, ver, layout = "single", shop = 
       // Double salai prints blank (not "--") when empty; others keep "--".
       display = raw || (v.measurement_key === "double_salai" ? "" : "--")
     }
-    return { label: printUrLabel(v.measurement_key), display }
+    return { label: v.custom_label ?? printUrLabel(v.measurement_key), display }
   })
 
   // Group into rows of 2 pairs → 4 columns per row (RTL ordering)
-  const tdLabel = `padding:1px 8px;border-bottom:1px solid #000;font-size:13px;font-weight:600;color:#000;white-space:nowrap`
+  const tdLabel = `padding:1px 8px;border-bottom:1px solid #000;font-size:13px;font-weight:600;color:#000;white-space:pre-wrap`
   const tdVal   = `padding:1px 8px;border-bottom:1px solid #000;font-size:15px;font-weight:700;color:#000;border-right:1px solid #000;min-width:48px;direction:ltr`
   const tdSep   = `padding:0;border-bottom:1px solid #000;width:1px;border-right:1px solid #000`
 
@@ -479,11 +480,11 @@ function buildVersionReceiptHtml(custData, item, ver, layout = "single", shop = 
     const a = pairs[i]
     const b = pairs[i + 1]
     rows += `<tr>
-      <td style="${tdLabel}">${a.label}</td>
-      <td style="${tdVal}">${a.display}</td>
+      <td style="${tdLabel}">${escapeHtml(a.label)}</td>
+      <td style="${tdVal}">${escapeHtml(a.display)}</td>
       <td style="${tdSep}"></td>
-      <td style="${tdLabel}">${b ? b.label : ""}</td>
-      <td style="${tdVal}">${b ? b.display : ""}</td>
+      <td style="${tdLabel}">${b ? escapeHtml(b.label) : ""}</td>
+      <td style="${tdVal}">${b ? escapeHtml(b.display) : ""}</td>
     </tr>`
   }
 
@@ -735,11 +736,16 @@ export default function CustomersPage() {
       const loaded = []
       for (let i = 0; i < items.length; i++) {
         const dbItem = items[i]
-        const entry = { catName: dbItem.category_name, active: i === 0, dbId: dbItem.id, _measVals: {} }
+        const entry = { catName: dbItem.category_name, active: i === 0, dbId: dbItem.id, _measVals: {}, _customFields: [] }
         const rM = await api.sbQ("customer_measurements", { query: "customer_item_id=eq." + dbItem.id + "&is_current=eq.true", limit: 1 })
         if (rM.data && rM.data[0]) {
           const rV = await api.sbQ("customer_measurement_values", { query: "measurement_id=eq." + rM.data[0].id })
-          ;(rV.data || []).forEach(v => { entry._measVals[v.measurement_key] = v.value })
+          ;(rV.data || []).forEach(v => {
+            if (isCustomMeasurement(v.measurement_key)) {
+              entry._customFields.push({ key: v.measurement_key, label: v.custom_label || "", value: v.value || "", order: v.display_order ?? entry._customFields.length })
+            } else entry._measVals[v.measurement_key] = v.value
+          })
+          entry._customFields.sort((a, b) => a.order - b.order)
           entry._measId = rM.data[0].id
         }
         loaded.push(entry)
@@ -754,7 +760,7 @@ export default function CustomersPage() {
       const idx = prev.findIndex(i => i.catName === catName)
       let next
       if (idx >= 0) next = prev.filter((_, j) => j !== idx)
-      else          next = [...prev, { catName, active: false, _measVals: {} }]
+      else          next = [...prev, { catName, active: false, _measVals: {}, _customFields: [] }]
       return next.map((it, j) => ({ ...it, active: j === 0 }))
     })
   }
@@ -777,9 +783,29 @@ export default function CustomersPage() {
     ))
   }
 
+  function addCustomField(catName) {
+    setCustItems(prev => prev.map(item => item.catName === catName
+      ? { ...item, _customFields: [...(item._customFields || []), { key: "custom_" + crypto.randomUUID().replaceAll("-", ""), label: "", value: "", order: (item._customFields || []).length }] }
+      : item))
+  }
+
+  function updateCustomField(catName, key, field, value) {
+    setCustItems(prev => prev.map(item => item.catName === catName
+      ? { ...item, _customFields: item._customFields.map(custom => custom.key === key ? { ...custom, [field]: value } : custom) }
+      : item))
+  }
+
+  function removeCustomField(catName, key) {
+    setCustItems(prev => prev.map(item => item.catName === catName
+      ? { ...item, _customFields: item._customFields.filter(custom => custom.key !== key) }
+      : item))
+  }
+
   // ── Save customer ────────────────────────────────────────────────────
   async function saveCust() {
     if (!formName.trim()) { toast.error("Full name is required"); return }
+    const unnamed = custItems.find(item => (item._customFields || []).some(field => !field.label.trim() && field.value.trim()))
+    if (unnamed) { toast.error(`Name each custom field with a value in ${unnamed.catName}`); return }
     setSaving(true)
     const body = { first_name: urduFold(formName.trim()) }
     if (formPhone.trim()) body.phone = formPhone.trim()
@@ -807,31 +833,20 @@ export default function CustomersPage() {
 
     for (const item of custItems) {
       const vals = item._measVals || {}
-      if (Object.keys(vals).length === 0) continue
+      const customFields = item._customFields || []
+      const rows = [
+        ...Object.entries(vals).map(([key, value]) => ({ measurement_key: key, value })),
+        ...customFields.map((field, order) => ({ measurement_key: field.key, value: field.value, custom_label: field.label, display_order: order })),
+      ]
+      if (!rows.length && !item.dbId) continue
       let itemDbId = item.dbId
       if (!itemDbId) {
         const rItem = await api.sbQ("customer_items", { method: "POST", body: [{ customer_id: custId, category_name: item.catName }] })
-        if (rItem.error || !rItem.data) continue
+        if (rItem.error || !rItem.data?.[0]) { toast.error(rItem.error?.message || "Could not save category"); setSaving(false); return }
         itemDbId = rItem.data[0].id
       }
-      const rCurr = await api.sbQ("customer_measurements", { query: "customer_item_id=eq." + itemDbId + "&is_current=eq.true", order: "version.desc", limit: 1 })
-      const currMeas = rCurr.data && rCurr.data[0]
-      const oldMap = {}
-      if (currMeas) {
-        const rOld = await api.sbQ("customer_measurement_values", { query: "measurement_id=eq." + currMeas.id })
-        ;(rOld.data || []).forEach(v => { oldMap[v.measurement_key] = v.value })
-      }
-      const merged  = { ...oldMap, ...vals }
-      const changed  = JSON.stringify(merged) !== JSON.stringify(oldMap)
-      if (changed) {
-        if (currMeas) await api.sbQ("customer_measurements", { method: "PATCH", query: "id=eq." + currMeas.id, body: { is_current: false } })
-        const newVer = currMeas ? currMeas.version + 1 : 1
-        const rMeas  = await api.sbQ("customer_measurements", { method: "POST", body: [{ customer_item_id: itemDbId, version: newVer, is_current: true, taken_at: new Date().toISOString() }] })
-        if (rMeas.error || !rMeas.data) continue
-        const measId  = rMeas.data[0].id
-        const valRows = Object.keys(merged).map(k => ({ measurement_id: measId, measurement_key: k, value: merged[k] }))
-        if (valRows.length) await api.sbQ("customer_measurement_values", { method: "POST", body: valRows })
-      }
+      const saved = await api.rpc("save_customer_measurement_version", { p_customer_item_id: String(itemDbId), p_values: rows })
+      if (saved.error) { toast.error(saved.error.message); setSaving(false); return }
     }
 
     toast.success("Customer saved")
@@ -880,13 +895,9 @@ export default function CustomersPage() {
         // one item + current measurements
         const rItem = await api.sbQ("customer_items", { method: "POST", body: [{ customer_id: custId, category_name: "Shalwar Qameez" }] })
         if (rItem.data && rItem.data[0]) {
-          const rMeas = await api.sbQ("customer_measurements", { method: "POST",
-            body: [{ customer_item_id: rItem.data[0].id, version: 1, is_current: true, taken_at: new Date().toISOString() }] })
-          if (rMeas.data && rMeas.data[0]) {
-            const vals = { lambai_qamees: "42", baazu: "24", teera: "16", gala: "15", chaati: "44", kamar: "40", gehra: "9" }
-            const rows = Object.keys(vals).map(k => ({ measurement_id: rMeas.data[0].id, measurement_key: k, value: vals[k] }))
-            await api.sbQ("customer_measurement_values", { method: "POST", body: rows })
-          }
+          const vals = { lambai_qamees: "42", baazu: "24", teera: "16", gala: "15", chaati: "44", kamar: "40", gehra: "9" }
+          const rows = Object.entries(vals).map(([measurement_key, value]) => ({ measurement_key, value }))
+          await api.rpc("save_customer_measurement_version", { p_customer_item_id: String(rItem.data[0].id), p_values: rows })
         }
         sub.refresh && sub.refresh()
         offsetRef.current = 0; setHasMore(true); fetchPage(false)
@@ -1072,12 +1083,29 @@ export default function CustomersPage() {
               {/* Measurement panels */}
               <div id="cust-meas-panels">
                 {activeItem ? (
-                  <MeasGroups
-                    catName={activeItem.catName}
-                    catRow={catRowByName[activeItem.catName]}
-                    values={activeItem._measVals || {}}
-                    onChange={(fieldKey, value) => updateMeas(activeItem.catName, fieldKey, value)}
-                  />
+                  <>
+                    <MeasGroups
+                      catName={activeItem.catName}
+                      catRow={catRowByName[activeItem.catName]}
+                      values={activeItem._measVals || {}}
+                      onChange={(fieldKey, value) => updateMeas(activeItem.catName, fieldKey, value)}
+                    />
+                    <div className="mgrp">
+                      <div className="mgrp-hd open"><div className="mgrp-title">Custom fields</div></div>
+                      <div className="mgrp-body open">
+                        {(activeItem._customFields || []).map(field => (
+                          <div key={field.key} className="mv-card" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <Input aria-label="Custom field name" placeholder="Field name" value={field.label}
+                              onChange={e => updateCustomField(activeItem.catName, field.key, "label", e.target.value)} style={{ flex: "1 1 130px" }} />
+                            <Input aria-label={field.label ? `${field.label} value` : "Custom field value"} placeholder="Value" value={field.value}
+                              onChange={e => updateCustomField(activeItem.catName, field.key, "value", e.target.value)} style={{ flex: "1 1 130px" }} />
+                            <Button type="button" variant="outline" size="sm" onClick={() => removeCustomField(activeItem.catName, field.key)}>Remove</Button>
+                          </div>
+                        ))}
+                        <Button type="button" variant="outline" size="sm" onClick={() => addCustomField(activeItem.catName)}>Add custom field</Button>
+                      </div>
+                    </div>
+                  </>
                 ) : custItems.length === 0 ? (
                   <p style={{ fontSize: 12.5, color: "hsl(var(--muted-foreground))", padding: "8px 0" }}>Select an item above to add measurements</p>
                 ) : null}
@@ -1145,7 +1173,7 @@ export default function CustomersPage() {
                                 <div className={"vh-body" + (j === 0 ? " open" : "")}>
                                   {/* Side-by-side receipt layout */}
                                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background:"hsl(var(--border))" }}>
-                                    {ver.vals.map(v => {
+                                    {sortMeasurementRows(ver.vals).map(v => {
                                       const isGala   = v.measurement_key === "gala_style"
                                       const isSQStyle = ["sq_baazu_style","sq_gala_style","sq_ghera_style"].includes(v.measurement_key)
                                       const isSelector = isGala || isSQStyle
@@ -1157,7 +1185,7 @@ export default function CustomersPage() {
                                           : fmtMeasVal(v.value)
                                       return (
                                         <div key={v.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "hsl(var(--card))", borderRadius: 1 }}>
-                                          <div style={{ fontSize: 10.5, color: "hsl(var(--muted-foreground))", fontWeight: 600 }}>{labelize(v.measurement_key)}</div>
+                                          <div style={{ fontSize: 10.5, color: "hsl(var(--muted-foreground))", fontWeight: 600 }}>{measurementLabel(v, labelize)}</div>
                                           <div style={{ fontSize: 13, fontWeight: 700, color: "hsl(var(--foreground))" }}>
                                             {dv}{!isSelector}                                            
                                           </div>                                          

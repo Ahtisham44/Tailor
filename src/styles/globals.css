@@ -440,6 +440,83 @@
   flex-wrap: wrap;
 }
 
+.order-filters {
+  display: flex;
+  flex: 1 1 600px;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.order-filters .srch { flex: 1 1 180px; min-width: 0; max-width: 260px; }
+.order-filters .sel-sm { min-width: 0; max-width: 100%; }
+.order-date-button { height: 36px; min-width: 0; max-width: 100%; font-weight: 400; justify-content: flex-start; }
+.order-date-picker { min-width: 0; max-width: 100%; }
+.order-date-popover { width: max-content; max-width: calc(100vw - 24px); padding: 0; }
+.order-date-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid hsl(var(--border));
+  padding: 12px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.order-date-picker-footer > span { min-width: 0; overflow-wrap: anywhere; }
+.order-date-picker-footer > button { margin-inline-start: auto; }
+.order-calendar.rdp-root {
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-accent-background-color: hsl(var(--accent));
+  --rdp-day-height: 36px;
+  --rdp-day-width: 36px;
+  --rdp-day_button-height: 36px;
+  --rdp-day_button-width: 36px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 12px;
+  color: hsl(var(--foreground));
+}
+.order-calendar .rdp-months { gap: 16px; max-width: none; }
+.order-calendar .rdp-month { width: 252px; min-width: 0; }
+.order-calendar .rdp-month_caption { height: 36px; justify-content: center; margin-bottom: 8px; font-size: 14px; font-weight: 600; }
+.order-calendar .rdp-nav { inset: 12px 12px auto; width: auto; height: 36px; justify-content: space-between; pointer-events: none; }
+.order-calendar .rdp-button_previous,
+.order-calendar .rdp-button_next { width: 36px; height: 36px; border-radius: 8px; pointer-events: auto; }
+.order-calendar .rdp-button_previous:hover,
+.order-calendar .rdp-button_next:hover { background: hsl(var(--accent)); }
+.order-calendar .rdp-month_grid { width: 100%; table-layout: fixed; }
+.order-calendar .rdp-weekdays,
+.order-calendar .rdp-week { display: flex; width: 100%; }
+.order-calendar .rdp-month_grid th,
+.order-calendar .rdp-month_grid td {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border-bottom: 0;
+}
+.order-calendar .rdp-weekday { width: auto; height: 36px; font-size: 12px; font-weight: 400; letter-spacing: 0; text-align: center; text-transform: none; }
+.order-calendar .rdp-day { width: auto; height: 36px; font-size: 13px; }
+.order-calendar .rdp-day_button { width: 100%; max-width: 36px; height: 36px; margin: auto; border-radius: 8px; }
+.order-calendar .rdp-day_button:hover:not(:disabled) { background: hsl(var(--accent)); }
+.order-calendar .rdp-range_start .rdp-day_button:hover,
+.order-calendar .rdp-range_end .rdp-day_button:hover { background: hsl(var(--primary)); }
+.order-calendar .rdp-today:not(.rdp-selected) .rdp-day_button { background: hsl(var(--accent)); font-weight: 600; }
+.order-date-dialog { min-height: 0; max-height: min(86dvh, 680px); width: 100%; }
+@media (max-width: 640px) {
+  .order-filters { flex-basis: 100%; }
+  .order-filters .srch { flex-basis: 100%; max-width: none; }
+  .order-filters .sel-sm { flex: 1 1 140px; }
+  .order-date-button { flex: 1 1 140px; }
+  .order-date-dialog { padding: 16px; }
+  .order-date-dialog .order-calendar { width: 100%; }
+  .order-date-dialog .rdp-months,
+  .order-date-dialog .rdp-month { width: 100%; }
+}
+
 /* Search */
 .srch {
   height: 36px;
@@ -548,7 +625,7 @@ td {
 }
 
 tr:last-child td { border-bottom: none; }
-tbody tr:hover td { background: hsl(var(--muted) / 0.5); }
+tbody tr:hover td:not(.rdp-day) { background: hsl(var(--muted) / 0.5); }
 
 /* Detail grid */
 .dg {
@@ -1155,3 +1232,9 @@ html.theme-anim * {
 
 /* Mobile bottom-sheet entrance for Dialog */
 @keyframes dialog-slideup { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.karigar-nav-count, .karigar-tab-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.25rem; height: 1.25rem; padding: 0 .25rem;
+  border-radius: 999px; background: #c63d31; color: white;
+  font-size: .7rem; font-weight: 700; line-height: 1;
+}

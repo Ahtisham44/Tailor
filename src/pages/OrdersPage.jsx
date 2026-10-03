@@ -6,6 +6,8 @@ import { useSubscription } from "@/hooks/useSubscription"
 import { useTourController } from "@/context/TourContext"
 import { tr, CATS } from "@/lib/config"
 import { fmtDate, cap, debounce, gradientAvatar, urduFold } from "@/lib/utils"
+import { hasMeasurementValue, measurementLabel, sortMeasurementRows } from "@/lib/measurements"
+import { orderFilterQuery } from "@/lib/orderFilters"
 import { Button } from "@/components/ui/button"
 import { Input }  from "@/components/ui/input"
 import { Label }  from "@/components/ui/label"
@@ -14,6 +16,9 @@ import { Switch } from "@/components/ui/switch"
 import { Card } from "@/components/ui/Card"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { CalendarDays } from "lucide-react"
 
 // ── Karigar Assignment Section ────────────────────────────────────────────────
 // Two modes:
@@ -24,7 +29,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 //    state and persists them right after the order is created.
 // `locked` (the plan's karigar limit is reached) keeps the control visible but
 // shows an upgrade prompt instead of opening the assignment dialog.
-function KarigarAssignmentSection({ orderId, api, draftRows, onDraftChange, locked = false }) {
+function KarigarAssignmentSection({ orderId, api, draftRows, onDraftChange, onSaved, locked = false }) {
   const draft = !orderId
   const [assignments, setAssignments] = useState([])
   const [allKarigars, setAllKarigars] = useState([])
@@ -91,16 +96,28 @@ function KarigarAssignmentSection({ orderId, api, draftRows, onDraftChange, lock
     }
 
     setSaving(true)
-    await api.sbQ("karigar_order_assignments", { method: "DELETE", query: "order_id=eq." + orderId })
-    for (const r of valid) {
-      await api.sbQ("karigar_order_assignments", {
-        method: "POST",
-        body: [{ karigar_id: r.karigar_id, order_id: orderId, agreed_rate: parseFloat(r.agreed_rate), notes: r.notes || null }]
-      })
+    try {
+      const retainedIds = new Set(valid.map(r => String(r.id || "")))
+      for (const old of committed.filter(a => !retainedIds.has(String(a.id)))) {
+        const result = await api.sbQ("karigar_order_assignments", { method: "DELETE", query: "id=eq." + old.id })
+        if (result.error) throw new Error(result.error.message)
+      }
+      for (const r of valid) {
+        const body = { karigar_id: r.karigar_id, agreed_rate: parseFloat(r.agreed_rate), notes: r.notes || null }
+        const result = r.id
+          ? await api.sbQ("karigar_order_assignments", { method: "PATCH", query: "id=eq." + r.id, body })
+          : await api.sbQ("karigar_order_assignments", { method: "POST", body: [{ ...body, order_id: orderId }] })
+        if (result.error) throw new Error(result.error.message)
+      }
+      toast.success("Karigar assignments saved")
+      setAssignOpen(false)
+      await loadAssignments()
+      onSaved?.()
+    } catch (error) {
+      toast.error(error.message)
+    } finally {
+      setSaving(false)
     }
-    toast.success("Karigar assignments saved")
-    setSaving(false); setAssignOpen(false)
-    await loadAssignments()
   }
 
   const totalLabour = committed.reduce((s, a) => s + (parseFloat(a.agreed_rate) || 0), 0)
@@ -280,9 +297,19 @@ export default function OrdersPage() {
   const [loading,     setLoading]     = useState(false)
   const [hasMore,     setHasMore]     = useState(true)
   const [query,       setQuery]       = useState("")
+  const [searchInput, setSearchInput] = useState("")
   const [statusFilter,setStatusFilter]= useState("")
+  const [karigarFilter, setKarigarFilter] = useState("")
+  const [karigars, setKarigars] = useState([])
+  const [dateFilter, setDateFilter] = useState("all")
+  const [dateRange, setDateRange] = useState(undefined)
+  const [draftRange, setDraftRange] = useState(undefined)
+  const [dateOpen, setDateOpen] = useState(false)
+  const [mobilePicker, setMobilePicker] = useState(false)
   const offsetRef   = useRef(0)
   const loadingRef  = useRef(false)
+  const requestRef = useRef(0)
+  const generationRef = useRef(0)
   const observerRef = useRef(null)
   const sentinelRef = useRef(null)
   const PAGE = 10
@@ -341,6 +368,22 @@ export default function OrdersPage() {
   const [measData,    setMeasData]    = useState({ cat: "", vals: {} })
 
   useEffect(() => { loadCustomers() }, [])
+  useEffect(() => {
+    if (karigarHidden) return
+    let active = true
+    async function loadFilterKarigars() {
+      const all = []
+      for (let offset = 0; active; offset += 1000) {
+        const r = await api.sbQ("karigar", { select: "id,name,status", order: "name.asc,id.asc", limit: 1000, offset })
+        if (!active || r.error) return
+        all.push(...(r.data || []))
+        if ((r.data || []).length < 1000) break
+      }
+      if (active) setKarigars(all)
+    }
+    loadFilterKarigars()
+    return () => { active = false }
+  }, [api, karigarHidden])
 
   async function loadCustomers() {
     const r = await api.sbQ("customers", { query: "deleted_at=is.null", order: "created_at.desc", limit: 500 })
@@ -379,7 +422,15 @@ export default function OrdersPage() {
 
   // ── Load orders ────────────────────────────────────────────────────
   const fetchPage = useCallback(async (append = false) => {
-    if (loadingRef.current) return
+    if (append && loadingRef.current) return
+    const request = ++requestRef.current
+    const generation = append ? generationRef.current : ++generationRef.current
+    if (!append) {
+      offsetRef.current = 0
+      setOrders([])
+      setHasMore(true)
+      setPaidByOrder({})
+    }
     loadingRef.current = true
     setLoading(true)
     const lookup = {}
@@ -393,6 +444,7 @@ export default function OrdersPage() {
         order: "created_at.desc",
         limit: 100,
       })
+      if (request !== requestRef.current) return
       const matched = rC.data || []
       if (matched.length) {
         // Merge matches into custResults so order cards resolve names even for
@@ -411,18 +463,19 @@ export default function OrdersPage() {
       matchedIds.forEach(cid => orParts.push("customer_ids.ilike.*" + cid + "*"))
       if (orParts.length) filters.push("or=(" + orParts.join(",") + ")")
     }
-    if (statusFilter) filters.push("status=eq." + statusFilter)
-
-    const r = await api.sbQ("orders", { query: filters.join("&"), order: "order_seq.desc,created_at.desc", limit: PAGE, offset: offsetRef.current })
+    const { select, filters: orderFilters } = orderFilterQuery({ status: statusFilter, karigar: karigarFilter, date: dateFilter, range: dateRange })
+    filters.push(...orderFilters)
+    const r = await api.sbQ("orders", { select, query: filters.join("&"), order: "order_seq.desc,created_at.desc", limit: PAGE, offset: offsetRef.current })
+    if (request !== requestRef.current) return
     loadingRef.current = false
     setLoading(false)
-    if (r.status === 401 || r.error) return
+    if (r.status === 401 || r.error) { if (r.error && r.status !== 401) toast.error(r.error.message); return }
     const batch = r.data || []
     if (!append) setOrders(batch)
     else setOrders(prev => [...prev, ...batch])
     setHasMore(batch.length === PAGE)
     offsetRef.current += batch.length
-    loadPaidForOrders(batch)
+    loadPaidForOrders(batch, generation)
 
     // Fetch any customers referenced by these orders that aren't in lookup yet.
     // This fixes the bug where orders reference customers outside the newest-500 batch.
@@ -435,6 +488,7 @@ export default function OrdersPage() {
         query: "id=in.(" + missingCustIds.join(",") + ")",
         limit: missingCustIds.length,
       })
+      if (generation !== generationRef.current) return
       if (rMiss.data) {
         setCustResults(prev => {
           const m = new Map(prev.map(c => [String(c.id), c]))
@@ -443,12 +497,12 @@ export default function OrdersPage() {
         })
       }
     }
-  }, [query, statusFilter, customers, api])
+  }, [query, statusFilter, karigarFilter, dateFilter, dateRange, customers, api])
 
   useEffect(() => {
-    if (!customers.length) return
-    offsetRef.current = 0; setHasMore(true); fetchPage(false)
-  }, [query, statusFilter, customers])
+    fetchPage(false)
+    return () => { requestRef.current++; generationRef.current++; loadingRef.current = false }
+  }, [fetchPage])
 
   useEffect(() => {
     if (!hasMore) return
@@ -466,7 +520,40 @@ export default function OrdersPage() {
     return () => scroller.removeEventListener("scroll", onScroll)
   }, [hasMore, fetchPage])
 
-  const debouncedSearch = useCallback(debounce(v => setQuery(v), 280), [])
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(searchInput), 280)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  function openDatePicker() {
+    setDraftRange(dateRange)
+    const mobile = window.matchMedia("(max-width: 640px)").matches
+    setMobilePicker(mobile)
+    if (mobile) setDateOpen(true)
+  }
+
+  function applyDateRange() {
+    if (!draftRange?.from || !draftRange?.to) return
+    setDateRange(draftRange)
+    setDateFilter("custom")
+    setDateOpen(false)
+  }
+
+  const displayRangeDate = date => new Intl.DateTimeFormat(lang === "ur" ? "ur-PK" : "en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  }).format(date)
+
+  const rangePicker = (
+    <div className="order-date-picker">
+      <Calendar mode="range" defaultMonth={draftRange?.from} selected={draftRange} onSelect={setDraftRange}
+        numberOfMonths={mobilePicker ? 1 : 2}
+        timeZone={Intl.DateTimeFormat().resolvedOptions().timeZone} />
+      <div className="order-date-picker-footer">
+        <span aria-live="polite">{draftRange?.from ? displayRangeDate(draftRange.from) : "Start"} – {draftRange?.to ? displayRangeDate(draftRange.to) : "End"}</span>
+        <Button size="sm" onClick={applyDateRange} disabled={!draftRange?.from || !draftRange?.to}>Apply</Button>
+      </div>
+    </div>
+  )
 
   function custMap() {
     const m = {}
@@ -477,10 +564,11 @@ export default function OrdersPage() {
 
   // ── Payments ────────────────────────────────────────────────────────
   // Fetch the total paid for a batch of orders (used by the list cards/badges).
-  async function loadPaidForOrders(orderRows) {
+  async function loadPaidForOrders(orderRows, generation) {
     const ids = (orderRows || []).map(o => o.id).filter(v => v != null)
     if (!ids.length) return
     const r = await api.sbQ("order_payments", { query: "order_id=in.(" + ids.join(",") + ")" })
+    if (generation != null && generation !== generationRef.current) return
     if (r.error || !r.data) return
     const sums = {}
     r.data.forEach(p => { sums[p.order_id] = (sums[p.order_id] || 0) + (parseFloat(p.amount) || 0) })
@@ -551,13 +639,13 @@ export default function OrdersPage() {
     for (const it of items) {
       // Check if there are actual measurements
       const rM = await api.sbQ("customer_measurements", { query: "customer_item_id=eq." + it.id + "&is_current=eq.true", limit: 1 })
-      const measVals = {}
+      const measVals = {}, measRows = []
       if (rM.data && rM.data[0]) {
         const rV = await api.sbQ("customer_measurement_values", { query: "measurement_id=eq." + rM.data[0].id })
-        ;(rV.data || []).forEach(v => { measVals[v.measurement_key] = v.value })
+        ;(rV.data || []).forEach(v => { measVals[v.measurement_key] = v.value; measRows.push(v) })
       }
       // Skip categories with no measurement values
-      if (Object.keys(measVals).length === 0) continue
+      if (!hasMeasurementValue(measRows)) continue
 
       const catRow = cats.find(c => c.name === it.category_name || c.name.toLowerCase() === (it.category_name || "").toLowerCase())
       let rate = null
@@ -566,7 +654,7 @@ export default function OrdersPage() {
         rate = rRate.data && rRate.data[0]
       }
       loaded.push({
-        category: it.category_name, measVals, qty: 1,
+        category: it.category_name, measVals, measRows, qty: 1,
         price: rate ? (rate.price || 0) : 0,
         dsReshmi: false, dsJaali: false, dsSada: false,
         dsReshmiPrice: rate ? (rate.ds_reshmi_price || 300) : 300,
@@ -630,7 +718,7 @@ export default function OrdersPage() {
         rate = rR.data && rR.data[0]
       }
       const rCI = await api.sbQ("customer_items", { query: "customer_id=eq." + cid + "&category_name=eq." + encodeURIComponent(catName), limit: 1 })
-      const measVals = {}
+      const measVals = {}, measRows = []
       // For a custom category, seed empty keys for its chosen fields so the
       // measurement editor shows them even before the customer has values.
       if (!CATS[catName] && catRow && Array.isArray(catRow.meas_fields)) {
@@ -640,12 +728,12 @@ export default function OrdersPage() {
         const rM = await api.sbQ("customer_measurements", { query: "customer_item_id=eq." + rCI.data[0].id + "&is_current=eq.true", limit: 1 })
         if (rM.data && rM.data[0]) {
           const rV = await api.sbQ("customer_measurement_values", { query: "measurement_id=eq." + rM.data[0].id })
-          ;(rV.data || []).forEach(v => { measVals[v.measurement_key] = v.value })
+          ;(rV.data || []).forEach(v => { measVals[v.measurement_key] = v.value; measRows.push(v) })
         }
       }
       setState(prev => {
         const items = [...(prev[cid]?.items || []), {
-          category: catName, measVals, qty: 1,
+          category: catName, measVals, measRows, qty: 1,
           price: rate ? (rate.price || 0) : 0,
           dsReshmi: false, dsJaali: false, dsSada: false,
           dsReshmiPrice: rate ? (rate.ds_reshmi_price || 300) : 300,
@@ -843,7 +931,7 @@ export default function OrdersPage() {
     const r = await api.sbQ("orders", { method: "PATCH", query: "id=eq." + orderId, body: { status: newStatus } })
     if (r.error) { toast.error(r.error.message); return }
     setViewOrder(prev => prev ? { ...prev, status: newStatus } : prev)
-    setOrders(prev => prev.map(o => String(o.id) === String(orderId) ? { ...o, status: newStatus } : o))
+    fetchPage(false)
     toast.success("Status updated to " + cap(newStatus))
   }
 
@@ -879,12 +967,12 @@ export default function OrdersPage() {
       const rCI = await api.sbQ("customer_items", { query: "customer_id=eq." + cid })
       for (const ci of (rCI.data || [])) {
         const rM = await api.sbQ("customer_measurements", { query: "customer_item_id=eq." + ci.id + "&is_current=eq.true", limit: 1 })
-        const measVals = {}
+        const measVals = {}, measRows = []
         if (rM.data && rM.data[0]) {
           const rV = await api.sbQ("customer_measurement_values", { query: "measurement_id=eq." + rM.data[0].id })
-          ;(rV.data || []).forEach(v => { measVals[v.measurement_key] = v.value })
+          ;(rV.data || []).forEach(v => { measVals[v.measurement_key] = v.value; measRows.push(v) })
         }
-        custMeasMap[cid][ci.category_name] = measVals
+        custMeasMap[cid][ci.category_name] = { measVals, measRows }
       }
     }
 
@@ -893,12 +981,12 @@ export default function OrdersPage() {
       const cid = String(oi.customer_id)
       const key = cid + ":" + oi.item_type
       if (seen[key]) continue; seen[key] = true
-      const measVals = (custMeasMap[cid] && custMeasMap[cid][oi.item_type]) || {}
+      const { measVals = {}, measRows = [] } = (custMeasMap[cid] && custMeasMap[cid][oi.item_type]) || {}
       const catRow = cats.find(c => c.name === oi.item_type)
       let rate = null
       if (catRow) { const rR = await api.sbQ("rates", { query: "category_id=eq." + catRow.id, limit: 1 }); rate = rR.data && rR.data[0] }
       newEditSel[cid].items.push({
-        category: oi.item_type, measVals, qty: oi.quantity || 1, price: oi.price || 0,
+        category: oi.item_type, measVals, measRows, qty: oi.quantity || 1, price: oi.price || 0,
         dsReshmi: oi.ds_reshmi || false, dsJaali: oi.ds_jaali || false, dsSada: oi.ds_sada || false,
         dsReshmiPrice: oi.ds_reshmi_price || (rate ? rate.ds_reshmi_price : 300) || 300,
         dsJaaliPrice:  oi.ds_jaali_price  || (rate ? rate.ds_jaali_price  : 500) || 500,
@@ -1069,7 +1157,7 @@ export default function OrdersPage() {
                 </div>
               ) : s.items.map((item, ii) => {
                 const iCol = CATS[item.category] ? CATS[item.category].color : "#888"
-                const hasMeas = Object.keys(item.measVals || {}).length > 0
+                const hasMeas = hasMeasurementValue(item.measRows || [])
                 return (
                   <div key={ii} style={{ padding: "12px 14px", borderTop: "1px solid hsl(var(--border))" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -1083,7 +1171,7 @@ export default function OrdersPage() {
                     {hasMeas && (
                       <div style={{ marginBottom: 10 }}>
                         <Button variant="outline" size="sm"
-                          onClick={() => { setMeasData({ cat: item.category, vals: item.measVals }); setMeasOpen(true) }}>
+                          onClick={() => { setMeasData({ cat: item.category, vals: item.measVals, rows: item.measRows }); setMeasOpen(true) }}>
                           Open Measurements
                         </Button>
                       </div>
@@ -1363,15 +1451,55 @@ export default function OrdersPage() {
     <div id="s-orders">
       {/* Toolbar */}
       <div className="toolbar">
-        <div style={{ display: "flex", gap: 8, flex: 1, flexWrap: "wrap" }}>
-          <input className="srch" id="or-q" placeholder={tr("search_orders", lang)} onChange={e => debouncedSearch(e.target.value)} />
-          <select id="or-st" className="sel-sm" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-            <option value="">All Statuses</option>
+        <div className="order-filters">
+          <input className="srch" id="or-q" value={searchInput} placeholder={tr("search_orders", lang)} onChange={e => setSearchInput(e.target.value)} aria-label={tr("search_orders", lang)} />
+          <select id="or-st" className="sel-sm" aria-label={lang === "ur" ? "حیثیت" : "Status"} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="">{lang === "ur" ? "تمام حیثیتیں" : "All statuses"}</option>
             {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
+          {!karigarHidden && <select id="or-karigar" className="sel-sm" aria-label={lang === "ur" ? "کاریگر" : "Karigar"} value={karigarFilter} onChange={e => setKarigarFilter(e.target.value)}>
+            <option value="">{lang === "ur" ? "تمام کاریگر" : "All karigars"}</option>
+            {karigars.map(k => <option key={k.id} value={k.id}>{k.name}{k.status === "inactive" ? (lang === "ur" ? " (غیر فعال)" : " (Inactive)") : ""}</option>)}
+            <option value="unassigned">{lang === "ur" ? "غیر تفویض شدہ" : "Unassigned"}</option>
+          </select>}
+          <select id="or-date" className="sel-sm" aria-label={lang === "ur" ? "بکنگ تاریخ" : "Booking date"} value={dateFilter} onChange={e => {
+            if (e.target.value === "custom") {
+              setDraftRange(dateRange)
+              setMobilePicker(window.matchMedia("(max-width: 640px)").matches)
+              setDateOpen(true)
+            } else setDateFilter(e.target.value)
+          }}>
+            <option value="all">{lang === "ur" ? "تمام تاریخیں" : "All dates"}</option>
+            <option value="today">{lang === "ur" ? "آج" : "Today"}</option>
+            <option value="week">{lang === "ur" ? "پچھلے 7 دن" : "Last 7 days"}</option>
+            <option value="month">{lang === "ur" ? "اس مہینے" : "This month"}</option>
+            <option value="custom">{lang === "ur" ? "اپنی تاریخیں" : "Custom range"}</option>
+          </select>
+          <Popover open={dateOpen && !mobilePicker} onOpenChange={setDateOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="order-date-button" onClick={openDatePicker} aria-label={lang === "ur" ? "تاریخ کا انتخاب" : "Choose booking dates"}>
+                <CalendarDays size={16} className="shrink-0" />
+                <span className="truncate">
+                  {dateFilter === "custom" && dateRange?.from && dateRange?.to
+                    ? `${displayRangeDate(dateRange.from)} – ${displayRangeDate(dateRange.to)}`
+                    : lang === "ur" ? "تاریخ منتخب کریں" : "Choose dates"}
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="order-date-popover" align="start">{rangePicker}</PopoverContent>
+          </Popover>
+          {(query || statusFilter || karigarFilter || dateFilter !== "all") && <Button variant="ghost" size="sm" onClick={() => {
+            setSearchInput(""); setQuery(""); setStatusFilter(""); setKarigarFilter(""); setDateFilter("all"); setDateRange(undefined); setDateOpen(false)
+          }}>{lang === "ur" ? "فلٹر صاف کریں" : "Clear filters"}</Button>}
         </div>
         <Button id="lbl-add-order" data-tour="add-order" onClick={openNewOrder}>{tr("add_order", lang)}</Button>
       </div>
+      <Dialog open={dateOpen && mobilePicker} onOpenChange={setDateOpen}>
+        <DialogContent className="order-date-dialog">
+          <DialogHeader><DialogTitle>{lang === "ur" ? "بکنگ تاریخیں" : "Booking dates"}</DialogTitle></DialogHeader>
+          {rangePicker}
+        </DialogContent>
+      </Dialog>
       <div id="osub" style={{ fontSize: 12, color: "hsl(var(--muted-foreground))", marginBottom: 12 }}>
         {orders.length} orders
         {maxOrders != null && (
@@ -1583,7 +1711,7 @@ export default function OrdersPage() {
                   </div>                  
                   {!karigarHidden && (
                     <div className="dblk">
-                      <KarigarAssignmentSection orderId={viewOrder.id} api={api} locked={atKarigarLimit} />
+                      <KarigarAssignmentSection orderId={viewOrder.id} api={api} onSaved={() => fetchPage(false)} locked={atKarigarLimit} />
                     </div>
                   )}
 
@@ -1803,17 +1931,18 @@ export default function OrdersPage() {
         >
           <DialogHeader><DialogTitle>{measData.cat}</DialogTitle></DialogHeader>
           <div id="ord-meas-popup-body">
-            {Object.keys(measData.vals || {}).length === 0 ? (
+            {!hasMeasurementValue(measData.rows || []) ? (
               <p style={{ fontSize: 13, color: "hsl(var(--muted-foreground))" }}>No measurements on file</p>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
-                {Object.keys(measData.vals).map(k => {
+                {sortMeasurementRows(measData.rows || []).map(row => {
+                  const k = row.measurement_key
                   const sqStyleKeys = new Set(["sq_baazu_style","sq_gala_style","sq_ghera_style","gala_style"])
                   const isSelector  = sqStyleKeys.has(k)
                   const mv = isSelector ? (measData.vals[k] || "--") : fmtMeasVal(measData.vals[k])
                   return (
                     <div key={k} style={{ background: "hsl(var(--transparent))", borderRadius: 7, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid hsl(var(--border))" }}>
-                      <div style={{ fontSize: 10.5, color: "hsl(var(--muted-foreground))", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".03em" }}>{labelize(k)}</div>
+                      <div style={{ fontSize: 10.5, color: "hsl(var(--muted-foreground))", fontWeight: 600, textTransform: row.custom_label ? "none" : "uppercase", letterSpacing: ".03em" }}>{measurementLabel(row, labelize)}</div>
                       <div style={{ fontSize: 15, fontWeight: 700 }}>
                         {mv}
                         {!isSelector}

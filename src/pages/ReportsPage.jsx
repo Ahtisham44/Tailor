@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useSubscription } from "@/hooks/useSubscription"
 import { cap } from "@/lib/utils"
 import { FIELD_BY_KEY, SQ_STYLE_SELECTORS } from "@/lib/config"
+import { reportMeasurementRows } from "@/lib/measurements"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input }  from "@/components/ui/input"
@@ -120,6 +121,7 @@ async function fetchAllPaged(api, table, { query, order } = {}) {
   const all = []
   for (;;) {
     const r = await api.sbQ(table, { query, order, limit: PAGE, offset })
+    if (r.error) throw new Error(r.error.message || `Could not load ${table}`)
     const rows = r.data || []
     all.push(...rows)
     if (rows.length < PAGE) break
@@ -134,8 +136,7 @@ async function fetchByIds(api, table, col, ids, extra = "") {
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100)
     const query = `${col}=in.(${chunk.join(",")})` + (extra ? "&" + extra : "")
-    const r = await api.sbQ(table, { query, limit: 1000 })
-    out.push(...(r.data || []))
+    out.push(...await fetchAllPaged(api, table, { query, order: "id.asc" }))
   }
   return out
 }
@@ -286,9 +287,7 @@ async function buildCustomersPdf(api, from, to) {
     custItems.forEach(it => {
       const meas = measByItem[it.id]
       const vals = meas ? (valsByMeas[meas.id] || []) : []
-      const rows = vals
-        .filter(v => v.value != null && String(v.value).trim() !== "")
-        .map(v => [measLabel(v.measurement_key), String(v.value) + (v.unit ? " " + v.unit : "")])
+      const rows = reportMeasurementRows(vals, measLabel)
 
       autoTable(pdf, {
         startY: y,

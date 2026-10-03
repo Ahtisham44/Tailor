@@ -1,0 +1,10 @@
+{
+  "name": "TailorCRM",
+  "short_name": "TailorCRM",
+  "start_url": "/karigar",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#202020",
+  "icons": [{ "src": "/Frame 1.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 import { useAuth } from "@/context/AuthContext"
@@ -10,24 +10,26 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-
-function karigarIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/>
-      <path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
-      <path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/>
-      <path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/>
-      <path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/>
-      <path d="M15.5 19H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/>
-      <path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/>
-      <path d="M8.5 5H10V3.5C10 2.67 9.33 2 8.5 2S7 2.67 7 3.5 7.67 5 8.5 5z"/>
-    </svg>
-  )
-}
+import { completedMonthPayable, money, monthBounds, monthKey, paymentMonths, previousMonth, undoSecondsRemaining } from "@/lib/karigarPayments"
+import { urText } from "@/lib/i18n"
+import { KARIGAR_PAYABLES_CHANGED } from "@/hooks/useKarigarPayables"
+import PushReminderControl from "@/components/PushReminderControl"
 
 // ── Simple recharts bar for earnings tab ──────────────────────────────────────
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts"
+
+function paymentText(value) {
+  return localStorage.getItem("ts_lang") === "ur" ? urText(value) : value
+}
+
+function monthLabel(month, short = false) {
+  const date = new Date(`${month}-01T12:00:00Z`)
+  const urdu = localStorage.getItem("ts_lang") === "ur"
+  const monthName = date.toLocaleString(urdu ? "ur-PK" : "en-US", {
+    month: urdu ? "long" : short ? "short" : "long", timeZone: "UTC",
+  })
+  return `${monthName} ${short ? month.slice(2, 4) : month.slice(0, 4)}`
+}
 
 export default function KarigarPage() {
   const { api } = useAuth()
@@ -38,6 +40,15 @@ export default function KarigarPage() {
   const [karigars, setKarigars] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState("")
+  const [allAssignments, setAllAssignments] = useState([])
+  const [allPayouts, setAllPayouts] = useState([])
+  const [ledgerLoading, setLedgerLoading] = useState(true)
+  const [ledgerError, setLedgerError] = useState(null)
+  const [payingKey, setPayingKey] = useState(null)
+  const [undoingId, setUndoingId] = useState(null)
+  const [now, setNow] = useState(Date.now())
+  const currentMonth = monthKey()
+  const payableMonth = previousMonth(currentMonth)
 
   // Add/Edit dialog
   const [formOpen, setFormOpen] = useState(false)
@@ -53,25 +64,63 @@ export default function KarigarPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailKarigar, setDetailKarigar] = useState(null)
   const [detailTab, setDetailTab] = useState("profile")
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [assignments, setAssignments] = useState([])
-  const [payments, setPayments] = useState([])
-  const [earningsFilter, setEarningsFilter] = useState(() => {
-    const now = new Date()
-    return {
-      from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-      to: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10),
-    }
-  })
-  const [earningsData, setEarningsData] = useState(null)
-  const [monthlyChart, setMonthlyChart] = useState([])
 
   // Delete confirm
   const [deleteId, setDeleteId] = useState(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteName, setDeleteName] = useState("")
 
-  useEffect(() => { loadKarigars() }, [])
+  const monthlyByKarigar = useMemo(() => {
+    const groupedAssignments = new Map()
+    const groupedPayouts = new Map()
+    for (const assignment of allAssignments) {
+      const key = String(assignment.karigar_id)
+      if (!groupedAssignments.has(key)) groupedAssignments.set(key, [])
+      groupedAssignments.get(key).push(assignment)
+    }
+    for (const payout of allPayouts) {
+      const key = String(payout.karigar_id)
+      if (!groupedPayouts.has(key)) groupedPayouts.set(key, [])
+      groupedPayouts.get(key).push(payout)
+    }
+    return Object.fromEntries(karigars.map(k => [
+      String(k.id), paymentMonths(groupedAssignments.get(String(k.id)) || [], groupedPayouts.get(String(k.id)) || [], currentMonth),
+    ]))
+  }, [karigars, allAssignments, allPayouts, currentMonth])
+
+  const detailRows = useMemo(
+    () => detailKarigar ? monthlyByKarigar[String(detailKarigar.id)] || [] : [],
+    [detailKarigar, monthlyByKarigar]
+  )
+  const payableByKarigar = useMemo(() => Object.fromEntries(karigars.map(k => {
+    const id = String(k.id)
+    const payouts = allPayouts.filter(p => String(p.karigar_id) === id)
+    return [id, completedMonthPayable(monthlyByKarigar[id] || [], payouts, payableMonth)]
+  })), [karigars, allPayouts, monthlyByKarigar, payableMonth])
+  const payableRow = detailKarigar ? payableByKarigar[String(detailKarigar.id)] : null
+  const detailPayouts = detailKarigar
+    ? allPayouts.filter(p => String(p.karigar_id) === String(detailKarigar.id))
+      .sort((a, b) => (b.paid_at || "").localeCompare(a.paid_at || "") || Number(b.id) - Number(a.id))
+    : []
+  const undoablePayoutByKarigar = useMemo(() => {
+    const payouts = new Map()
+    for (const payout of allPayouts) {
+      const key = String(payout.karigar_id)
+      if (!payout.legacy_payment_id && undoSecondsRemaining(payout.created_at, now) > 0 && !payouts.has(key)) {
+        payouts.set(key, payout)
+      }
+    }
+    return payouts
+  }, [allPayouts, now])
+  const chartData = useMemo(() => {
+    const now = currentMonth.split("-").map(Number)
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(Date.UTC(now[0], now[1] - 6 + i, 1))
+      const key = d.toISOString().slice(0, 7)
+      const row = detailRows.find(item => item.month === key)
+      return { month: monthLabel(key, true), earnings: row?.earned || 0 }
+    })
+  }, [detailRows, currentMonth])
 
   // Pre-open from Reports page with ?karigar=id
   useEffect(() => {
@@ -82,12 +131,48 @@ export default function KarigarPage() {
     }
   }, [searchParams, karigars])
 
-  async function loadKarigars() {
-    setLoading(true)
+  const loadKarigars = useCallback(async () => {
     const r = await api.sbQ("karigar", { order: "name.asc" })
     setKarigars(r.data || [])
     setLoading(false)
-  }
+  }, [api])
+
+  const fetchAll = useCallback(async (table, order) => {
+    const rows = []
+    for (let offset = 0; ; offset += 1000) {
+      const result = await api.sbQ(table, { order, limit: 1000, offset })
+      if (result.error) throw new Error(result.error.message)
+      rows.push(...(result.data || []))
+      if ((result.data || []).length < 1000) return rows
+    }
+  }, [api])
+
+  const loadLedger = useCallback(async () => {
+    try {
+      const [assignments, payouts] = await Promise.all([
+        fetchAll("karigar_order_assignments", "created_at.desc"),
+        fetchAll("karigar_payouts", "period_start.desc,id.desc"),
+      ])
+      setAllAssignments(assignments)
+      setAllPayouts(payouts)
+      setLedgerError(null)
+    } catch (error) {
+      setLedgerError(error.message)
+      toast.error(paymentText("Could not load karigar payments: " + error.message))
+    } finally {
+      setLedgerLoading(false)
+    }
+  }, [fetchAll])
+
+  // Initial reads populate the page from the remote store.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadKarigars(); loadLedger() }, [loadKarigars, loadLedger])
+
+  useEffect(() => {
+    if (!allPayouts.some(p => !p.legacy_payment_id && undoSecondsRemaining(p.created_at, now) > 0)) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [allPayouts, now])
 
   // ── Form helpers ──────────────────────────────────────────────────────────
   function resetForm() {
@@ -141,74 +226,68 @@ export default function KarigarPage() {
       if (r.error) { toast.error(r.error.message); setFormSaving(false); return }
     }
 
-    toast.success(editId ? "Karigar updated" : "Karigar added")
+    toast.success(paymentText(editId ? "Karigar updated" : "Karigar added"))
     setFormSaving(false); setFormOpen(false)
     loadKarigars()
+    window.dispatchEvent(new Event(KARIGAR_PAYABLES_CHANGED))
   }
 
   async function confirmDelete() {
     const r = await api.sbQ("karigar", { method: "DELETE", query: "id=eq." + deleteId })
     if (r.error && r.status !== 204) { toast.error(r.error.message); return }
-    toast.success(deleteName + " deleted")
+    toast.success(paymentText(deleteName + " deleted"))
     setDeleteOpen(false); loadKarigars()
+    window.dispatchEvent(new Event(KARIGAR_PAYABLES_CHANGED))
   }
 
   // ── Detail dialog ─────────────────────────────────────────────────────────
-  async function openDetail(k) {
+  function openDetail(k) {
     setDetailKarigar(k); setDetailTab("profile"); setDetailOpen(true)
-    setDetailLoading(true)
-    await loadEarnings(k.id, earningsFilter)
-    await loadPayments(k.id)
-    setDetailLoading(false)
   }
 
-  async function loadEarnings(kId, filter) {
-    const [rA] = await Promise.all([
-      api.sbQ("karigar_order_assignments", {
-        query: "karigar_id=eq." + kId,
-        order: "created_at.desc"
+  async function markPaid(karigarId, month) {
+    const key = `${karigarId}:${month}`
+    if (payingKey) return
+    const bounds = monthBounds(month)
+    if (!bounds || month !== previousMonth()) return
+    setPayingKey(key)
+    try {
+      const result = await api.rpc("record_karigar_completed_month_payment", {
+        p_karigar_id: String(karigarId), p_period_start: bounds.start,
       })
-    ])
-    const all = rA.data || []
-    // Filter by date range using order created_at isn't perfect; we filter on assignment created_at
-    const filtered = all.filter(a => {
-      const d = a.created_at ? a.created_at.slice(0, 10) : ""
-      return (!filter.from || d >= filter.from) && (!filter.to || d <= filter.to)
-    })
-    const totalOrders = filtered.length
-    const totalEarnings = filtered.reduce((s, a) => s + (parseFloat(a.agreed_rate) || 0), 0)
-    setAssignments(filtered)
-    setEarningsData({ totalOrders, totalEarnings })
-
-    // Build 6-month chart
-    const months = []
-    const now = new Date()
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const key = d.toISOString().slice(0, 7)
-      const label = d.toLocaleString("en-US", { month: "short", year: "2-digit" })
-      const amt = all
-        .filter(a => a.created_at && a.created_at.slice(0, 7) === key)
-        .reduce((s, a) => s + (parseFloat(a.agreed_rate) || 0), 0)
-      months.push({ month: label, earnings: amt })
+      if (result.error) throw new Error(result.error.message)
+      toast.success(paymentText(Number(result.data) > 0 ? `${money(result.data)} marked as paid. Undo is available for 5 minutes.` : "Completed work is already paid"))
+      await loadLedger()
+      window.dispatchEvent(new Event(KARIGAR_PAYABLES_CHANGED))
+      setNow(Date.now())
+    } catch (error) {
+      toast.error(paymentText(error.message))
+    } finally {
+      setPayingKey(null)
     }
-    setMonthlyChart(months)
   }
 
-  async function loadPayments(kId) {
-    const r = await api.sbQ("karigar_payments", { query: "karigar_id=eq." + kId, order: "period_start.desc" })
-    setPayments(r.data || [])
+  async function undoPayment(payout) {
+    if (undoingId || payingKey || undoSecondsRemaining(payout.created_at) <= 0) return
+    setUndoingId(payout.id)
+    try {
+      const result = await api.rpc("undo_karigar_monthly_payment", { p_payout_id: payout.id })
+      if (result.error) throw new Error(result.error.message)
+      toast.success(paymentText(`${money(result.data)} payment undone`))
+      await loadLedger()
+      window.dispatchEvent(new Event(KARIGAR_PAYABLES_CHANGED))
+      setNow(Date.now())
+    } catch (error) {
+      toast.error(paymentText(error.message))
+      await loadLedger()
+    } finally {
+      setUndoingId(null)
+    }
   }
 
-  async function markPaid(paymentId) {
-    const r = await api.sbQ("karigar_payments", {
-      method: "PATCH",
-      query: "id=eq." + paymentId,
-      body: { status: "paid", date_paid: new Date().toISOString().slice(0, 10) }
-    })
-    if (r.error) { toast.error(r.error.message); return }
-    toast.success("Marked as paid")
-    if (detailKarigar) await loadPayments(detailKarigar.id)
+  function undoLabel(payout) {
+    const seconds = undoSecondsRemaining(payout.created_at, now)
+    return paymentText(`Undo (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")})`)
   }
 
   const filtered = karigars.filter(k =>
@@ -217,6 +296,7 @@ export default function KarigarPage() {
 
   return (
     <div className="space-y-4">
+      <PushReminderControl />
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">        
         <div className="flex flex-col items-stretch gap-1 sm:items-end">
@@ -240,6 +320,12 @@ export default function KarigarPage() {
         onChange={e => setQuery(e.target.value)}
       />
 
+      {ledgerError && (
+        <div role="alert" className="rounded-lg border border-destructive p-3 text-sm text-destructive">
+          {paymentText(`Could not load karigar payments: ${ledgerError}`)}
+        </div>
+      )}
+
       {/* Table (desktop) / Cards (mobile) */}
       {loading ? (
         <div className="ld"><div className="spin" /></div>
@@ -255,12 +341,19 @@ export default function KarigarPage() {
                   <th>Name</th>
                   <th>Phone</th>
                   <th>Status</th>
-                  <th>Actions</th>
+                  <th>Paid</th>
+                  <th>{paymentText(`Outstanding through ${monthLabel(payableMonth)}`)}</th>
+                  <th>Payment</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(k => (
-                  <tr key={k.id}>
+                {filtered.map(k => {
+                  const rows = monthlyByKarigar[String(k.id)] || []
+                  const due = payableByKarigar[String(k.id)]
+                  const paid = rows.reduce((sum, row) => sum + row.paid, 0)
+                  const balance = Math.max(due?.balance || 0, 0)
+                  const undoablePayout = undoablePayoutByKarigar.get(String(k.id))
+                  return <tr key={k.id}>
                     <td>
                       <Button                        
                         onClick={() => openDetail(k)}
@@ -274,36 +367,41 @@ export default function KarigarPage() {
                         {k.status === "active" ? "Active" : "Inactive"}
                       </span>
                     </td>
+                    <td>{ledgerLoading || ledgerError ? "—" : money(paid)}</td>
+                    <td>{ledgerLoading || ledgerError ? "—" : money(balance)}</td>
                     <td>
-                      <div className="flex items-center gap-2">
-                        {/* <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigate("/reports?type=karigar-payment&karigar=" + k.id)}
-                          className="text-xs"
-                        >
-                          Payment Slip
-                        </Button> */}
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(k)}>Edit</Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => { setDeleteId(k.id); setDeleteName(k.name); setDeleteOpen(true) }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
+                      {ledgerLoading || ledgerError ? <span className="text-muted-foreground text-xs">—</span> : (
+                        <div className="flex flex-wrap gap-2">
+                          {due?.balance > 0 ? (
+                            <Button size="sm" variant="outline" disabled={!!payingKey || !!undoingId}
+                              onClick={() => markPaid(k.id, due.month)}>
+                              {payingKey === `${k.id}:${due.month}` ? "Saving…" : paymentText(`Mark ${money(due.balance)} as paid · ${monthLabel(due.month)}`)}
+                            </Button>
+                          ) : <span className="text-muted-foreground text-xs">No balance</span>}
+                          {undoablePayout && (
+                            <Button size="sm" variant="outline" disabled={!!payingKey || !!undoingId}
+                              onClick={() => undoPayment(undoablePayout)}>
+                              {undoingId === undoablePayout.id ? "Undoing…" : undoLabel(undoablePayout)}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
-                ))}
+                })}
               </tbody>
             </table>
           </div>
 
           {/* Mobile cards */}
           <div className="flex flex-col gap-3 md:hidden">
-            {filtered.map(k => (
+            {filtered.map(k => {
+              const rows = monthlyByKarigar[String(k.id)] || []
+              const due = payableByKarigar[String(k.id)]
+              const paid = rows.reduce((sum, row) => sum + row.paid, 0)
+              const balance = Math.max(due?.balance || 0, 0)
+              const undoablePayout = undoablePayoutByKarigar.get(String(k.id))
+              return (
               <div
                 key={k.id}
                 className="bg-card border border-border rounded-lg p-4 cursor-pointer"
@@ -318,27 +416,26 @@ export default function KarigarPage() {
                     {k.status === "active" ? "Active" : "Inactive"}
                   </span>
                 </div>
-                <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
-                  {/* <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => navigate("/reports?type=karigar-payment&karigar=" + k.id)}
-                  >
-                    Payment Slip
-                  </Button> */}
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => openEdit(k)}>Edit</Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-destructive w-full"
-                    onClick={() => { setDeleteId(k.id); setDeleteName(k.name); setDeleteOpen(true) }}
-                  >
-                    Delete
-                  </Button>
+                <div className="flex justify-between text-sm mt-3">
+                  <span>{paymentText(`Paid: ${ledgerLoading || ledgerError ? "—" : money(paid)}`)}</span>
+                  <span>{paymentText(`Through ${monthLabel(payableMonth)}: ${ledgerLoading || ledgerError ? "—" : money(balance)}`)}</span>
                 </div>
+                {due?.balance > 0 && !ledgerLoading && !ledgerError && (
+                  <Button size="sm" variant="outline" className="w-full mt-3"
+                    disabled={!!payingKey || !!undoingId}
+                    onClick={event => { event.stopPropagation(); markPaid(k.id, due.month) }}>
+                    {payingKey === `${k.id}:${due.month}` ? "Saving…" : paymentText(`Mark ${money(due.balance)} as paid · ${monthLabel(due.month)}`)}
+                  </Button>
+                )}
+                {undoablePayout && !ledgerLoading && !ledgerError && (
+                  <Button size="sm" variant="outline" className="w-full mt-2"
+                    disabled={!!payingKey || !!undoingId}
+                    onClick={event => { event.stopPropagation(); undoPayment(undoablePayout) }}>
+                    {undoingId === undoablePayout.id ? "Undoing…" : undoLabel(undoablePayout)}
+                  </Button>
+                )}
               </div>
-            ))}
+            )})}
           </div>
         </>
       )}
@@ -393,7 +490,7 @@ export default function KarigarPage() {
 
       {/* ── Detail Dialog ── */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span>{detailKarigar?.name}</span>
@@ -405,23 +502,15 @@ export default function KarigarPage() {
             </DialogTitle>
           </DialogHeader>
 
-          {detailLoading ? (
-            <div className="ld"><div className="spin" /></div>
-          ) : detailKarigar ? (
-            <Tabs value={detailTab} onValueChange={setDetailTab}>
+          {detailKarigar ? (
+            <Tabs value={detailTab} onValueChange={setDetailTab} className="flex-1">
               <TabsList className="w-full">
                 <TabsTrigger value="profile" className="flex-1">Profile</TabsTrigger>
                 <TabsTrigger value="earnings" className="flex-1">Earnings</TabsTrigger>
-                {/* <TabsTrigger value="payments" className="flex-1">Payments</TabsTrigger> */}
               </TabsList>
 
               {/* ── Tab 1: Profile ── */}
               <TabsContent value="profile" className="space-y-3 p-3 border border-border rounded-xl mt-4">
-                <div className="flex justify-end">
-                  <Button size="sm" variant="outline" onClick={() => { setDetailOpen(false); openEdit(detailKarigar) }}>
-                    Edit
-                  </Button>
-                </div>
                 <div className="grid grid-cols-1 ">
                   {[
                     ["Name", detailKarigar.name],
@@ -445,43 +534,61 @@ export default function KarigarPage() {
 
               {/* ── Tab 2: Earnings ── */}
               <TabsContent value="earnings" className="space-y-4 pt-3">
-                <div className="flex gap-2 flex-wrap">
-                  <div className="flex items-center gap-1.5">
-                    <Label className="text-xs whitespace-nowrap">From</Label>
-                    <Input type="date" value={earningsFilter.from}
-                      onChange={e => setEarningsFilter(p => ({ ...p, from: e.target.value }))}
-                      className="h-8 text-xs w-36" />
+                <p className="font-semibold">{paymentText(`Payable through ${monthLabel(payableMonth)}`)}</p>
+
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    ["Earlier unpaid", money(payableRow?.carried)],
+                    [paymentText(`Earned in ${monthLabel(payableMonth)}`), money(payableRow?.earned)],
+                    ["Paid all time", money(payableRow?.paidAllTime)],
+                    [payableRow?.balance < 0 ? "Overpaid" : "Total payable", money(Math.abs(payableRow?.balance || 0))],
+                  ].map(([label, value]) => (
+                    <div key={label} className="bg-muted/50 rounded-md p-3">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
+                      <p className="text-lg font-bold text-foreground">{ledgerLoading || ledgerError ? "—" : value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border border-border rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold">{paymentText(`${monthLabel(payableMonth)} · ${payableRow?.orders || 0} orders assigned`)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {paymentText(`${monthBounds(payableMonth)?.start} to ${monthBounds(payableMonth)?.end} · Includes earlier unpaid work`)}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Label className="text-xs whitespace-nowrap">To</Label>
-                    <Input type="date" value={earningsFilter.to}
-                      onChange={e => setEarningsFilter(p => ({ ...p, to: e.target.value }))}
-                      className="h-8 text-xs w-36" />
-                  </div>
-                  <Button size="sm" variant="outline" onClick={() => loadEarnings(detailKarigar.id, earningsFilter)}>
-                    Apply
+                  <Button disabled={ledgerLoading || !!ledgerError || !!payingKey || !!undoingId || !payableRow || payableRow.balance <= 0}
+                    onClick={() => markPaid(detailKarigar.id, payableMonth)}>
+                    {payingKey === `${detailKarigar.id}:${payableMonth}` ? "Saving…" : paymentText(`Mark ${money(payableRow?.balance)} as paid`)}
                   </Button>
                 </div>
 
-                {earningsData && (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {[
-                      ["Orders Assigned", earningsData.totalOrders],
-                      ["Total Earnings", "Rs " + (earningsData.totalEarnings || 0)],
-                      ["Pieces", assignments.length],
-                    ].map(([l, v]) => (
-                      <div key={l} className="bg-muted/50 rounded-md p-3">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{l}</p>
-                        <p className="text-lg font-bold text-foreground">{v}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Payment history</p>
+                  {detailPayouts.length ? (
+                    <div className="tc rounded-lg border border-border overflow-hidden">
+                      <table>
+                        <thead><tr><th>Date paid</th><th>Period recorded</th><th>Amount</th><th>Action</th></tr></thead>
+                        <tbody>{detailPayouts.map(p => (
+                          <tr key={p.id}>
+                            <td>{p.paid_at}</td><td>{monthLabel(p.period_start.slice(0, 7))}</td><td className="font-semibold">{money(p.amount)}</td>
+                            <td>{!p.legacy_payment_id && undoSecondsRemaining(p.created_at, now) > 0 && (
+                              <Button size="sm" variant="outline" disabled={!!payingKey || !!undoingId}
+                                onClick={() => undoPayment(p)}>
+                                {undoingId === p.id ? "Undoing…" : undoLabel(p)}
+                              </Button>
+                            )}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No payment records yet</p>}
+                </div>
 
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Earnings — Last 6 Months</p>
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={monthlyChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                       <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
@@ -491,54 +598,29 @@ export default function KarigarPage() {
                   </ResponsiveContainer>
                 </div>
               </TabsContent>
-
-              {/* ── Tab 3: Payments ── */}
-              <TabsContent value="payments" className="pt-3">
-                {payments.length === 0 ? (
-                  <div className="empty"><h3>No payment records</h3></div>
-                ) : (
-                  <div className="tc rounded-lg border border-border overflow-hidden">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Period</th>
-                          <th>Orders</th>
-                          <th>Amount</th>
-                          <th>Status</th>
-                          <th>Date Paid</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {payments.map(p => (
-                          <tr key={p.id}>
-                            <td className="text-xs whitespace-nowrap">
-                              {p.period_start} → {p.period_end}
-                            </td>
-                            <td>{p.total_orders || "—"}</td>
-                            <td className="font-semibold">Rs {p.total_payable}</td>
-                            <td>
-                              <span className={"bdg " + (p.status === "paid" ? "ba" : "bg")}>
-                                {p.status === "paid" ? "Paid" : "Pending"}
-                              </span>
-                            </td>
-                            <td className="text-muted-foreground text-xs">{p.date_paid || "—"}</td>
-                            <td>
-                              {p.status === "pending" && (
-                                <Button size="sm" variant="outline" onClick={() => markPaid(p.id)}>
-                                  Mark Paid
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </TabsContent>
             </Tabs>
           ) : null}
+
+          {detailKarigar && detailTab === "profile" && (
+            <DialogFooter>
+              <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => { setDetailOpen(false); openEdit(detailKarigar) }}>
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive hover:text-destructive w-full sm:w-auto"
+                onClick={() => {
+                  setDeleteId(detailKarigar.id)
+                  setDeleteName(detailKarigar.name)
+                  setDetailOpen(false)
+                  setDeleteOpen(true)
+                }}
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          )}
 
         </DialogContent>
       </Dialog>

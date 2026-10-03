@@ -6,6 +6,7 @@ import { useLang } from "@/hooks/useLang"
 import ThemeToggle from "@/components/ThemeToggle"
 import ProductTour from "@/components/ProductTour"
 import MoreTabBar from "@/components/MoreTabBar"
+import { useKarigarPayables } from "@/hooks/useKarigarPayables"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -38,13 +39,14 @@ const BACKSTAGE_SECTIONS = [
 ]
 
 export default function Layout({ children }) {
-  const { getUserDisplayName, getUserInitials, getShopName, getLogoUrl, logout } = useAuth()
+  const { getUserDisplayName, getUserInitials, getShopName, logout } = useAuth()
   const subState = useSubscription()
   const { isAdmin, canKarigar, canReports } = subState
   const { lang, setLang } = useLang()
 
   const hasReports = isAdmin || canReports
   const hasKarigar = isAdmin || canKarigar
+  const { count: payableCount } = useKarigarPayables(hasKarigar)
 
   // ── "More" tab items (always include rates so the Rates/Expenses/Categories
   // group stays together). Order: Rates, Expenses, Categories, Karigar,
@@ -242,7 +244,7 @@ export default function Layout({ children }) {
         </div>
         <SubscriptionBanner sub={subState} />
         <div className="content">
-          {showMoreTabs && <MoreTabBar items={moreItems} />}
+          {showMoreTabs && <MoreTabBar items={moreItems} karigarCount={payableCount} />}
           {children}
         </div>
       </main>
@@ -267,6 +269,7 @@ export default function Layout({ children }) {
         >
           {ICONS.more}
           <span>{tr("more", lang)}</span>
+          {payableCount > 0 && <span className="karigar-nav-count" aria-label={`${payableCount} karigars to pay`}>{payableCount}</span>}
         </button>
       </nav>
     </div>

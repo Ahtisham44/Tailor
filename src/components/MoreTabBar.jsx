@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 // on desktop the sidebar already lists all of these destinations (the wrapper
 // is hidden above 640px via .more-tabs-wrap). Logout now lives on the Profile
 // page, so it is no longer part of this strip.
-export default function MoreTabBar({ items = [] }) {
+export default function MoreTabBar({ items = [], karigarCount = 0 }) {
   const { lang } = useLang()
   const location = useLocation()
   const navigate = useNavigate()
@@ -23,6 +23,7 @@ export default function MoreTabBar({ items = [] }) {
           {items.map(it => (
             <TabsTrigger className="py-1" key={it.id} value={it.id}>
               {tr(it.id, lang)}
+              {it.id === "karigar" && karigarCount > 0 && <span className="karigar-tab-count" aria-label={`${karigarCount} karigars to pay`}>{karigarCount}</span>}
             </TabsTrigger>
           ))}
         </TabsList>
