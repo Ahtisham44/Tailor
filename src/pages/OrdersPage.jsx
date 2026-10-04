@@ -8,6 +8,7 @@ import { tr, CATS } from "@/lib/config"
 import { fmtDate, cap, debounce, gradientAvatar, urduFold } from "@/lib/utils"
 import { hasMeasurementValue, measurementLabel, sortMeasurementRows } from "@/lib/measurements"
 import { orderFilterQuery } from "@/lib/orderFilters"
+import { EXTRA_PRESETS, defaultExtras, extraRow, extraName, presetForName, encodeExtraType, decodeExtraType, restoreExtras, extrasTotal } from "@/lib/orderExtras"
 import { Button } from "@/components/ui/button"
 import { Input }  from "@/components/ui/input"
 import { Label }  from "@/components/ui/label"
@@ -347,6 +348,7 @@ export default function OrdersPage() {
   const [editLoading, setEditLoading] = useState(false)
   // Per-customer "adding item" spinner (keyed by customer id) for the items panel
   const [addingItem,  setAddingItem]  = useState({})
+  const [catSelects, setCatSelects] = useState({})
 
   // View order state
   const [viewOpen,    setViewOpen]    = useState(false)
@@ -654,7 +656,7 @@ export default function OrdersPage() {
         rate = rRate.data && rRate.data[0]
       }
       loaded.push({
-        category: it.category_name, measVals, measRows, qty: 1,
+        category: it.category_name, measVals, measRows, qty: 1, extras: defaultExtras(),
         price: rate ? (rate.price || 0) : 0,
         dsReshmi: false, dsJaali: false, dsSada: false,
         dsReshmiPrice: rate ? (rate.ds_reshmi_price || 300) : 300,
@@ -733,7 +735,7 @@ export default function OrdersPage() {
       }
       setState(prev => {
         const items = [...(prev[cid]?.items || []), {
-          category: catName, measVals, measRows, qty: 1,
+          category: catName, measVals, measRows, qty: 1, extras: defaultExtras(),
           price: rate ? (rate.price || 0) : 0,
           dsReshmi: false, dsJaali: false, dsSada: false,
           dsReshmiPrice: rate ? (rate.ds_reshmi_price || 300) : 300,
@@ -755,6 +757,34 @@ export default function OrdersPage() {
     })
   }
 
+  function updateExtra(cid, itemIdx, extraIdx, changes, setState) {
+    setState(prev => {
+      const items = [...(prev[cid]?.items || [])]
+      const extras = [...(items[itemIdx].extras || [])]
+      extras[extraIdx] = { ...extras[extraIdx], ...changes }
+      items[itemIdx] = { ...items[itemIdx], extras }
+      return { ...prev, [cid]: { ...prev[cid], items } }
+    })
+  }
+
+  function addExtra(cid, itemIdx, presetName, setState) {
+    const preset = presetForName(presetName)
+    setState(prev => {
+      const items = [...(prev[cid]?.items || [])]
+      const extras = [...(items[itemIdx].extras || []), preset ? extraRow(preset.en, preset.price) : extraRow()]
+      items[itemIdx] = { ...items[itemIdx], extras }
+      return { ...prev, [cid]: { ...prev[cid], items } }
+    })
+  }
+
+  function removeExtra(cid, itemIdx, extraIdx, setState) {
+    setState(prev => {
+      const items = [...(prev[cid]?.items || [])]
+      items[itemIdx] = { ...items[itemIdx], extras: (items[itemIdx].extras || []).filter((_, i) => i !== extraIdx) }
+      return { ...prev, [cid]: { ...prev[cid], items } }
+    })
+  }
+
   function calcTotal(sel, disc) {
     let total = 0
     Object.values(sel).forEach(s => {
@@ -763,15 +793,22 @@ export default function OrdersPage() {
         if (it.dsReshmi) total += (it.dsReshmiPrice || 300) * (it.qty || 1)
         if (it.dsJaali)  total += (it.dsJaaliPrice  || 500) * (it.qty || 1)
         if (it.dsSada)   total += (it.dsSadaPrice   || 200) * (it.qty || 1)
+        total += extrasTotal(it.extras || [])
       })
     })
     return total - (parseFloat(disc) || 0)
+  }
+
+  function hasUnnamedExtra(sel) {
+    return Object.values(sel).some(s => (s.items || []).some(it =>
+      (it.extras || []).some(extra => !String(extra.name || "").trim())))
   }
 
   async function saveNewOrder() {
     const custIds = Object.keys(selCusts)
     if (!orderNum) { toast.error("Order number required"); return }
     if (!custIds.length) { toast.error("Select at least one customer"); return }
+    if (hasUnnamedExtra(selCusts)) { toast.error("Name or remove each additional item"); return }
     // Friendly client-side guard (the database also enforces this hard).
     if (maxOrders != null && ordersUsed >= maxOrders) {
       toast.error(`You've reached your plan's limit of ${maxOrders} orders. Upgrade to add more.`)
@@ -834,6 +871,21 @@ export default function OrdersPage() {
           double_stitch_price: dsT,
           line_total: (it.price || 0) * (it.qty || 1) + dsT * (it.qty || 1),
         }] })
+        for (const [index, extra] of (it.extras || []).entries()) {
+          const name = String(extra.name || "").trim()
+          const qty = Number(extra.qty) || 0
+          const price = Number(extra.price) || 0
+          if (!name || qty <= 0) continue
+          await api.sbQ("order_items", { method: "POST", body: [{
+            order_id: orderId, customer_id: cid,
+            item_type: encodeExtraType(it.category, index, name),
+            quantity: qty, price, double_stitch: false,
+            ds_reshmi: false, ds_jaali: false, ds_sada: false,
+            ds_reshmi_price: 300, ds_jaali_price: 500, ds_sada_price: 200,
+            double_stitch_price: 0,
+            line_total: price * qty,
+          }] })
+        }
       }
     }
   }
@@ -978,6 +1030,7 @@ export default function OrdersPage() {
 
     const seen = {}
     for (const oi of oItems) {
+      if (decodeExtraType(oi.item_type)) continue
       const cid = String(oi.customer_id)
       const key = cid + ":" + oi.item_type
       if (seen[key]) continue; seen[key] = true
@@ -987,6 +1040,7 @@ export default function OrdersPage() {
       if (catRow) { const rR = await api.sbQ("rates", { query: "category_id=eq." + catRow.id, limit: 1 }); rate = rR.data && rR.data[0] }
       newEditSel[cid].items.push({
         category: oi.item_type, measVals, measRows, qty: oi.quantity || 1, price: oi.price || 0,
+        extras: restoreExtras(oItems.filter(row => String(row.customer_id) === cid), oi.item_type),
         dsReshmi: oi.ds_reshmi || false, dsJaali: oi.ds_jaali || false, dsSada: oi.ds_sada || false,
         dsReshmiPrice: oi.ds_reshmi_price || (rate ? rate.ds_reshmi_price : 300) || 300,
         dsJaaliPrice:  oi.ds_jaali_price  || (rate ? rate.ds_jaali_price  : 500) || 500,
@@ -1003,6 +1057,7 @@ export default function OrdersPage() {
   async function saveEditOrder() {
     const custIds = Object.keys(editSelCusts)
     if (!editNum) { toast.error("Order number required"); return }
+    if (hasUnnamedExtra(editSelCusts)) { toast.error("Name or remove each additional item"); return }
     setEditSaving(true)
     const grand = calcTotal(editSelCusts, editDisc)
     const body = {
@@ -1134,8 +1189,7 @@ export default function OrdersPage() {
   }
 
   // ── Items panel (shared by new + edit) ─────────────────────────────
-  function ItemsPanel({ sel, setSel, custIds }) {
-    const [catSelects, setCatSelects] = useState({})
+  function renderItemsPanel(sel, setSel, custIds) {
     return (
       <>
         {custIds.map((cid) => {
@@ -1215,7 +1269,7 @@ export default function OrdersPage() {
                       </div>
                     </div>
 
-                    {/* DS Reshmi & DS Jaali — shadcn Switch */}
+                    {/* Double salai options */}
                     {item.category === "Shalwar Qameez" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
                         <div className="ds-row" style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1259,6 +1313,78 @@ export default function OrdersPage() {
                         </div>
                       </div>
                     )}
+
+                    <div style={{ marginTop: 12, borderTop: "1px solid hsl(var(--border))", paddingTop: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{lang === "ur" ? "اضافی اشیاء" : "Additional items"}</div>
+                      <datalist id={`extra-presets-${cid}-${ii}`}>
+                        {EXTRA_PRESETS.map(preset => <option key={preset.en} value={lang === "ur" ? preset.ur : preset.en} />)}
+                      </datalist>
+                      {(item.extras || []).map((extra, ei) => (
+                        <div key={extra.id ?? ei} style={{ display: "grid", gridTemplateColumns: "minmax(105px, 1fr) 75px 60px auto", gap: 8, alignItems: "end", marginTop: 7 }}>
+                          <div>
+                            <Label htmlFor={`extra-name-${cid}-${ii}-${extra.id ?? ei}`}>{lang === "ur" ? "نام" : "Name"}</Label>
+                            <Input
+                              id={`extra-name-${cid}-${ii}-${extra.id ?? ei}`}
+                              key={`extra-name-${cid}-${ii}-${extra.id}-${lang}`}
+                              list={`extra-presets-${cid}-${ii}`}
+                              defaultValue={extraName(extra.name, lang)}
+                              onBlur={e => {
+                                const name = e.target.value.trim()
+                                const preset = presetForName(name)
+                                const savedName = preset ? preset.en : name
+                                if (savedName !== extra.name) {
+                                  updateExtra(cid, ii, ei, preset ? { name: savedName, price: preset.price } : { name: savedName }, setSel)
+                                }
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`extra-price-${cid}-${ii}-${extra.id ?? ei}`}>{lang === "ur" ? "قیمت" : "Price"}</Label>
+                            <Input
+                              id={`extra-price-${cid}-${ii}-${extra.id ?? ei}`}
+                              key={`extra-price-${cid}-${ii}-${extra.id}-${extra.price}`}
+                              type="number" min="0" step="any" inputMode="decimal"
+                              defaultValue={extra.price}
+                              onBlur={e => {
+                                const price = Math.max(0, Number(e.target.value) || 0)
+                                e.target.value = price
+                                updateExtra(cid, ii, ei, { price }, setSel)
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`extra-qty-${cid}-${ii}-${extra.id ?? ei}`}>{lang === "ur" ? "تعداد" : "Qty"}</Label>
+                            <Input
+                              id={`extra-qty-${cid}-${ii}-${extra.id ?? ei}`}
+                              key={`extra-qty-${cid}-${ii}-${extra.id}`}
+                              type="number" min="1" step="1" inputMode="numeric"
+                              defaultValue={extra.qty}
+                              onBlur={e => {
+                                const qty = Math.max(1, Math.floor(Number(e.target.value) || 1))
+                                e.target.value = qty
+                                updateExtra(cid, ii, ei, { qty }, setSel)
+                              }}
+                            />
+                          </div>
+                          <Button variant="ghost" size="sm" style={{ color: "hsl(var(--destructive))" }} onClick={() => removeExtra(cid, ii, ei, setSel)}>
+                            {lang === "ur" ? "ہٹائیں" : "Remove"}
+                          </Button>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                        <select
+                          aria-label={lang === "ur" ? "پہلے سے موجود آئٹم شامل کریں" : "Add preset item"}
+                          defaultValue=""
+                          onChange={e => { if (e.target.value) addExtra(cid, ii, e.target.value, setSel); e.target.value = "" }}
+                          style={{ border: "1.5px solid hsl(var(--border))", borderRadius: 6, padding: "5px 8px", fontSize: 12, background: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>
+                          <option value="">{lang === "ur" ? "+ آئٹم شامل کریں" : "+ Add preset"}</option>
+                          {EXTRA_PRESETS.map(preset => <option key={preset.en} value={preset.en}>{extraName(preset.en, lang)}</option>)}
+                        </select>
+                        <Button variant="outline" size="sm" onClick={() => addExtra(cid, ii, "", setSel)}>
+                          {lang === "ur" ? "+ اپنی آئٹم شامل کریں" : "+ Add custom item"}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )
               })}
@@ -1313,14 +1439,16 @@ export default function OrdersPage() {
 
     let itemsHtml = "", computedSub = 0
     items.forEach(it => {
-      const c = cm[String(it.customer_id)] || {}
+      const extra = decodeExtraType(it.item_type)
+      const itemLabel = extra ? `↳ ${extraName(extra.name, lang)}` : it.item_type
+      const safeLabel = String(itemLabel).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch])
       const qty = it.quantity || 1, basePrice = it.price || 0
       const dsRA = it.ds_reshmi ? (it.ds_reshmi_price || 300) * qty : 0
       const dsJA = it.ds_jaali  ? (it.ds_jaali_price  || 500) * qty : 0
       const dsSA = it.ds_sada   ? (it.ds_sada_price   || 200) * qty : 0
       computedSub += basePrice * qty + dsRA + dsJA + dsSA
       itemsHtml += `<tr>
-        <td class="inv-name">${it.item_type}</td>
+        <td class="${extra ? "inv-name-ds" : "inv-name"}">${safeLabel}</td>
         <td class="inv-price">Rs ${basePrice}</td>
         <td class="inv-qty">${qty}</td>
         <td class="inv-price">Rs ${basePrice * qty}</td>
@@ -1594,7 +1722,7 @@ export default function OrdersPage() {
                 </div>
               </div>
               <div id="of-selected-custs">
-                <ItemsPanel sel={selCusts} setSel={setSelCusts} custIds={Object.keys(selCusts)} />
+                {renderItemsPanel(selCusts, setSelCusts, Object.keys(selCusts))}
               </div>
               {/* {!karigarHidden && (
                 <KarigarAssignmentSection
@@ -1657,7 +1785,7 @@ export default function OrdersPage() {
                 <span style={{ fontSize: 13 }}>{lang === "ur" ? "اشیاء لوڈ ہو رہی ہیں…" : "Loading items…"}</span>
               </div>
             ) : (
-              <ItemsPanel sel={editSelCusts} setSel={setEditSelCusts} custIds={Object.keys(editSelCusts)} />
+              renderItemsPanel(editSelCusts, setEditSelCusts, Object.keys(editSelCusts))
             )}
           </div>
           <DialogFooter>
@@ -1720,7 +1848,6 @@ export default function OrdersPage() {
                     <div className="dbt">Pricing</div>
                     {/* Native pricing table for in-app display */}
                     {(() => {
-                      const cm = custMap()
                       const dsArrow = lang === "ur" ? "↲" : "↳"
                       let computedSub = 0
                       // Each item's base row is immediately followed by its own DS addon
@@ -1728,7 +1855,7 @@ export default function OrdersPage() {
                       // gets appended after every item) so the pricing table stays grouped
                       // by item even when multiple items each have their own double salai.
                       const rows = viewItems.flatMap((it, idx) => {
-                        const c = cm[String(it.customer_id)] || {}
+                        const extra = decodeExtraType(it.item_type)
                         const qty = it.quantity || 1
                         const base = it.price || 0
                         const dsRA = it.ds_reshmi ? (it.ds_reshmi_price || 300) * qty : 0
@@ -1738,7 +1865,7 @@ export default function OrdersPage() {
                         const line = [
                           <tr key={idx}>
                             {/* <td style={{ fontWeight: 600 }}>{nm(c)}</td> */}
-                            <td>{it.item_type}</td>
+                            <td style={extra ? { fontWeight: 600, color: "hsl(var(--muted-foreground))" } : undefined}>{extra ? `${dsArrow} ${extraName(extra.name, lang)}` : it.item_type}</td>
                             <td>Rs {base}</td>
                             <td style={{ textAlign: "center" }}>{qty}</td>
                             <td style={{ fontWeight: 700, color: "hsl(var(--primary))" }}>Rs {base * qty}</td>
